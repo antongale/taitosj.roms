@@ -16,7 +16,7 @@
 		<dip bits="8,9"   name="Lives"       ids="2, 3, 4, Free Play"/>
 		<dip bits="10,11" name="Bonus Life"  ids="Rocket Build, Every 10000, Every 20000, Every 50000"/>
 		<dip bits="12"    name="Up Thrust"   ids="Off, On"/>
-		<dip bits="13"    name="Unused 5"    ids="Off, On"/>
+		<dip bits="13"    name="Starfield"   ids="Off, On"/>
 		<dip bits="14"    name="Coin Lockout" ids="Engaged, Released"/>
 		<dip bits="15"    name="Sound"       ids="Muted, On"/>
 	</switches>

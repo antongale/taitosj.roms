@@ -15,7 +15,7 @@ Eight-position rocker, located on the main PCB.
 
 | SW1 | SW2 | SW3 | SW4 | SW5 | SW6 | SW7 | SW8 |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Lives | Lives | Bonus | Bonus | Up Thrust | (reserved) | Coin Lockout | Sound |
+| Lives | Lives | Bonus | Bonus | Up Thrust | Starfield | Coin Lockout | Sound |
 
 ---
 
@@ -44,9 +44,14 @@ Eight-position rocker, located on the main PCB.
 | OFF | Thrust assigned to button only |
 | ON  | Thrust also responds to UP on joystick |
 
-### SW6 — Reserved
+### SW6 — Starfield
 
-Leave OFF. Not currently wired to any game function.
+| Position | Setting |
+|:---:|---|
+| OFF | Starfield **on** — scrolling parallax star background (default) |
+| ON  | Starfield **off** — background blanked |
+
+> **Note:** takes effect live — toggling SW6 during play switches the starfield immediately.
 
 ### SW7 — Coin Lockout *(workshop / test use)*
 
@@ -71,7 +76,7 @@ Leave OFF. Not currently wired to any game function.
 ## Recommended Factory Setting
 
 > **All switches OFF.**
-> 3 ships, bonus every 10,000 points, thrust on button only, coins accepted, sound on.
+> 3 ships, bonus every 10,000 points, thrust on button only, starfield on, coins accepted, sound on.
 
 ---
 
