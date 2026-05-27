@@ -1,0 +1,47 @@
+<misterromdescription>
+	<n>Jet Set Willy (Taito SJ)</n>
+	<mameversion>0245</mameversion>
+	<setname>jsw_sj</setname>
+	<mratimestamp>202605120000</mratimestamp>
+	<year>2026</year>
+	<manufacturer>Anton Gale (homebrew port — original by Software Projects, 1984)</manufacturer>
+	<category>Platform</category>
+	<rbf>TaitoSJ</rbf>
+	<rotation>horizontal</rotation>
+	<joystick>2-way</joystick>
+	<buttons names="Fire,Thrust,Coin 1,Start 1P,Coin 2,Start 2P,Service,Pause"
+	         default="A,B,Select,Start,X,Y,L,R"/>
+	<!-- DSA byte (bits 8-15 of the switches space) lives at $D40A on the main CPU.
+	     Default $C4: Collision On (bit 2), Coin Lockout Released (bit 6),
+	     Sound On (bit 7); everything else cleared. -->
+	<switches default="00,C4,00,FF,00,00,00,00">
+		<dip bits="10"    name="Collision"      ids="Off, On"/>
+		<dip bits="11"    name="Infinite Lives" ids="Off, On"/>
+		<dip bits="12"    name="In-Game Warp"   ids="Disabled, Enabled"/>
+		<dip bits="13"    name="Willy Speed"    ids="Normal, Turbo"/>
+		<dip bits="14"    name="Coin Lockout"   ids="Engaged, Released"/>
+		<dip bits="15"    name="Sound"          ids="Muted, On"/>
+	</switches>
+	<rom index="0" md5="none" zip="jsw_sj.zip" type="merged|nonmerged">
+		<!-- Main CPU - Bank 0 (code + rooms 0..30) [0x8000/0x8000] -->
+		<part name="jsw_sj.rom"/>
+		<!-- Main CPU - Bank 1 (same code, rooms 31..60 at $6000-$7FFF) [0x8000/0x8000] -->
+		<part name="jsw_sj_bank1.rom"/>
+		<!-- GFX ROMs [0x4000/0x8000] -->
+		<part crc="4b1d9455" name="rh24.001"/>
+		<part crc="bf71e278" name="rh25.002"/>
+		<part crc="13da2a9b" name="rh26.003"/>
+		<part crc="425b52b0" name="rh27.004"/>
+		<!-- Padding GFX: 0x4000 -->
+		<part repeat="0x4000"> 00 </part>
+		<!-- Audio CPU ROMs [0x1000/0x4000] -->
+		<part name="jsw_sj_sound.rom"/>
+		<!-- Layer PROM [0x100/0x800] -->
+		<part crc="b833b5ea" name="eb16.22"/>
+		<!-- Padding PROM: 0x700 -->
+		<part repeat="0x700"> 00 </part>
+	</rom>
+	<rom index="1">
+		<part>3</part>
+	</rom>
+</misterromdescription>
