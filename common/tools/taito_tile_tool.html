@@ -1,0 +1,2358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Font Tile Tool</title>
+<style>
+/* ══ Phosphor Green — CRT terminal aesthetic ══════════════════════
+   bg #020d04 · dim #0a3010 · mid #1a6030 · bright #22bb44 · hot #44ee66
+   monospace everywhere · no border-radius · ASCII box borders
+   ══════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box;margin:0;padding:0;}
+
+html,body{
+  background:#020d04;
+  color:#22bb44;
+  font-family:"Courier New",Courier,monospace;
+  font-size:12px;
+  padding:14px;
+  min-height:100vh;
+}
+
+/* Screen scanline overlay */
+body::after{
+  content:'';
+  pointer-events:none;
+  position:fixed;
+  inset:0;
+  background:repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  z-index:9999;
+}
+
+/* ── Headings ── */
+h2{
+  font-size:11px;
+  font-weight:bold;
+  color:#1a6030;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  margin-bottom:8px;
+  font-family:inherit;
+}
+
+/* ── Top bar ── */
+#top-bar{
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+  margin-bottom:12px;
+  padding-bottom:8px;
+  border-bottom:1px solid #0a3010;
+}
+
+/* ── Error bar ── */
+#errbar{
+  display:none;background:#000;
+  border:1px solid #aa4422;
+  padding:6px 10px;margin-bottom:10px;
+  font-family:inherit;font-size:11px;
+  color:#ee6644;line-height:1.6;
+}
+
+/* ── Layout ── */
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:stretch;}
+
+/* ── Panel ── */
+.panel{
+  background:#030f05;
+  border:1px solid #0a3010;
+  padding:10px;
+}
+.panel.grow{flex:1;min-width:220px;}
+
+/* ── Canvas / source view ── */
+.cview{
+  overflow:auto;
+  background:#000;
+  border:1px solid #0a3010;
+  padding:4px;
+  max-height:300px;
+}
+canvas{image-rendering:pixelated;display:block;}
+
+/* ── Buttons ── */
+.btn{
+  padding:3px 10px;
+  border:1px solid #1a5020;
+  background:#000;
+  color:#22bb44;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:11px;
+  font-weight:bold;
+  white-space:nowrap;
+  transition:background .08s;
+}
+.btn::before{content:'[';}
+.btn::after{content:']';}
+.btn:hover{background:#0a2010;color:#44ee66;border-color:#22bb44;}
+.btn:disabled{opacity:1;color:#0a3010;border-color:#061808;cursor:default;}
+.btn.active{
+  background:#0a3010;color:#44ee66;
+  border-color:#44ee66;
+}
+.btn.danger{color:#cc4422;border-color:#441408;}
+.btn.danger:hover{background:#1a0800;color:#ff6644;}
+.btn.primary{color:#44ee66;border-color:#1a6030;}
+.btn.primary:hover{background:#081c0a;color:#66ff88;}
+.btn-row{display:flex;gap:4px;flex-wrap:wrap;}
+.lsb-on{background:#0a3010 !important;color:#44ee66 !important;border-color:#44ee66 !important;}
+
+/* Top-bar load buttons (styled differently from normal .btn) */
+#pick-btn,#bin-pick-btn,#bin-append-btn{
+  padding:3px 10px;
+  border:1px solid #1a5020;
+  background:#000;
+  color:#22bb44;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:11px;
+  font-weight:bold;
+  display:flex;align-items:center;gap:6px;
+}
+#pick-btn:hover,#bin-pick-btn:hover,#bin-append-btn:hover{
+  background:#0a2010;color:#44ee66;border-color:#22bb44;
+}
+#pick-btn svg,#bin-pick-btn svg,#bin-append-btn svg{display:none;}/* hide SVG icons */
+#bin-append-btn:disabled{color:#0a3010;border-color:#061808;cursor:default;}
+
+/* Divider */
+.divider{border:none;border-top:1px solid #0a3010;margin:8px 0;}
+
+/* Info */
+.info{font-size:10px;color:#1a6030;font-family:inherit;margin-top:4px;}
+.info span{color:#22bb44;}
+
+/* Labels / checks */
+label.check{
+  display:flex;align-items:center;gap:5px;
+  cursor:pointer;font-size:11px;font-weight:bold;
+  color:#22bb44;margin-bottom:5px;
+}
+label.check input{accent-color:#44ee66;width:12px;height:12px;}
+
+/* qmap */
+.qmap{display:grid;grid-template-columns:1fr 1fr;gap:1px;width:76px;margin-top:4px;}
+.qmap div{height:14px;border:1px solid #0a3010;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:bold;}
+
+/* Tile grid */
+#tile-grid-wrap{
+  display:flex;flex-wrap:wrap;gap:1px;
+  background:#000;
+  border:1px solid #0a3010;
+  padding:4px;overflow:auto;
+}
+.tile-thumb{border:1px solid #061808;flex-shrink:0;}
+.tile-thumb.tile-selected{outline:2px solid #ffff00 !important;outline-offset:-1px;z-index:1;}
+#tile-grid-wrap.delete-mode .tile-thumb{cursor:crosshair;}
+#tile-grid-wrap.delete-mode .tile-thumb:hover{outline:2px solid #ff3300;outline-offset:-1px;}
+.delete-mode-active .tile-thumb{cursor:crosshair;}
+.delete-mode-active .tile-thumb:hover{outline:2px solid #ff3300;outline-offset:-1px;}
+#tile-grid-wrap.pixel-mode .tile-thumb,
+.pixel-mode-active .tile-thumb,
+#tile-grid-wrap.draw-mode .tile-thumb,
+.draw-mode-active .tile-thumb{cursor:crosshair;}
+
+/* Inputs / selects */
+input[type=text],input[type=number],textarea,select{
+  background:#000;
+  color:#44ee66;
+  border:1px solid #1a5020;
+  font-family:"Courier New",Courier,monospace;
+  font-size:11px;
+  padding:2px 5px;
+  border-radius:0 !important;
+}
+input[type=text]:focus,input[type=number]:focus,
+textarea:focus,select:focus{
+  outline:1px solid #44ee66;background:#061808;
+}
+input[type=range]{accent-color:#44ee66;}
+input[id^="bp"][type=text],input[id="bin-tile-count"]{
+  background:#000;color:#44ee66;border-color:#22bb44;
+}
+
+/* Pal-entry */
+.pal-entry{
+  display:flex;align-items:center;gap:8px;
+  padding:3px 6px;
+  background:#000;
+  border:1px solid #0a3010;
+  cursor:pointer;margin-bottom:1px;
+}
+.pal-entry:hover{background:#061808;border-color:#22bb44;}
+.pal-entry.draw-sel{background:#0a3010;border-color:#44ee66;}
+.pal-swatch9{
+  width:24px;height:24px;
+  border:1px solid #1a5020;flex-shrink:0;
+}
+.pal-bytes{font-size:10px;font-family:inherit;color:#1a6030;line-height:1.7;}
+.pal-bytes .ph{color:#44ee66;font-weight:bold;}
+.pal-bytes .pl{color:#22bb44;}
+.pal-idx{font-size:11px;color:#1a6030;min-width:16px;font-weight:bold;}
+.dp-swatch{
+  width:16px;height:16px;
+  border:1px solid #1a5020;
+  cursor:pointer;flex-shrink:0;
+}
+.dp-swatch.sel{outline:2px solid #ffff00;}
+.pal9-quick{
+  width:22px;height:22px;
+  border:1px solid #1a5020;
+  cursor:pointer;padding:0;
+}
+.pal9-quick:hover{border-color:#44ee66;}
+
+/* Misc palette UI */
+.pal-row{display:flex;gap:6px;align-items:center;margin-bottom:4px;}
+.swatch{width:18px;height:12px;border:1px solid #0a3010;flex-shrink:0;}
+.idx-badge{font-size:10px;background:#0a3010;color:#44ee66;padding:0 3px;font-weight:bold;}
+.pal-label{color:#22bb44;font-size:10px;flex:1;}
+.arrow-btn{background:#000;border:1px solid #1a5020;color:#22bb44;padding:0 4px;cursor:pointer;font-family:inherit;font-size:10px;}
+.arrow-btn:hover{border-color:#44ee66;color:#44ee66;}
+
+/* Modal */
+#pal9-modal>div{
+  background:#020d04;
+  border:1px solid #44ee66;
+  padding:0;
+  min-width:280px;
+  box-shadow:0 0 12px #22bb4422;
+}
+#pal9-modal>div>div:first-child{
+  background:#0a3010;color:#44ee66;
+  font-size:11px;font-weight:bold;
+  padding:3px 8px;border-bottom:1px solid #1a5020;
+}
+#pal9-modal>div>div:not(:first-child){padding:8px 10px;}
+
+/* Anim strip */
+#anim-strip{
+  display:flex;flex-wrap:wrap;gap:2px;
+  background:#000;
+  border:1px solid #0a3010;
+  padding:3px;max-height:180px;overflow:auto;
+}
+</style>
+</head>
+<body>
+
+
+<div id="top-bar" style="display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-bottom:14px;">
+
+  <!-- Load buttons -->
+  <button id="pick-btn" style="display:flex;align-items:center;gap:8px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ab8ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <span>Load PNG / BMP</span>
+  </button>
+
+  <button id="bin-pick-btn" style="display:flex;align-items:center;gap:8px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6fdd6f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <span>Load .bin / .rom</span>
+  </button>
+  <button id="bin-append-btn" disabled style="display:flex;align-items:center;gap:8px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0a040" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+      <line x1="12" y1="19" x2="12" y2="23"/><line x1="9" y1="21" x2="15" y2="21"/>
+    </svg>
+    <span>Append .bin / .rom</span>
+  </button>
+
+
+  <!-- Divider -->
+  <div style="width:1px;background:#1e1e2a;margin:4px 0;"></div>
+
+  <!-- Export + tools — always visible, buttons disabled until loaded -->
+  <button class="btn primary" id="btn-bin" disabled style="align-self:center;">Save .bin</button>
+  <div style="display:flex;flex-direction:column;gap:3px;align-self:center;">
+    <button class="btn" id="btn-bp0" disabled style="font-size:11px;color:#6fdd6f;border-color:#1a3a1a;">BP0 .bin</button>
+    <button class="btn" id="btn-bp0-asm" disabled style="font-size:11px;color:#6fdd6f;border-color:#1a3a1a;">BP0 .asm</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:3px;align-self:center;">
+    <button class="btn" id="btn-bp1" disabled style="font-size:11px;color:#4ab8ff;border-color:#1a2a3a;">BP1 .bin</button>
+    <button class="btn" id="btn-bp1-asm" disabled style="font-size:11px;color:#4ab8ff;border-color:#1a2a3a;">BP1 .asm</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:3px;align-self:center;">
+    <button class="btn" id="btn-bp2" disabled style="font-size:11px;color:#e0a0ff;border-color:#2a1a3a;">BP2 .bin</button>
+    <button class="btn" id="btn-bp2-asm" disabled style="font-size:11px;color:#e0a0ff;border-color:#2a1a3a;">BP2 .asm</button>
+  </div>
+  <button class="btn primary" id="btn-bmp" disabled style="align-self:center;">Save .bmp</button>
+  <button class="btn active" id="btn-lsb" style="align-self:center;">LSB ↔ MSB: OFF</button>
+
+  <button class="btn danger" id="btn-clear" style="align-self:center;">Clear</button>
+
+
+</div>
+
+<input type="file" id="fi" accept="image/*" style="display:none">
+<input type="file" id="bin-fi" accept="*" style="display:none">
+<input type="file" id="bin-append-fi" accept="*" style="display:none">
+
+<div id="errbar"></div>
+
+<div id="bin-offset-panel" style="display:none;margin-bottom:12px;">
+  <div class="panel" style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
+    <div>
+      <div style="font-size:10px;color:#444;margin-bottom:4px;letter-spacing:.06em;">BITPLANE 0 OFFSET</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:12px;color:#555;font-family:monospace;">$</span>
+        <input type="text" id="bp0-offset" value="0000" maxlength="6"
+          style="width:72px;background:#0e0e14;border:0.5px solid #2a2a38;color:#6fdd6f;
+                 padding:4px 7px;border-radius:5px;font-size:13px;font-family:monospace;letter-spacing:.08em;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <button onclick="stepOffset('bp0-offset',0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#6fdd6f;cursor:pointer;font-size:11px;line-height:1.4;">▲</button>
+          <button onclick="stepOffset('bp0-offset',-0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#6fdd6f;cursor:pointer;font-size:11px;line-height:1.4;">▼</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:#444;margin-bottom:4px;letter-spacing:.06em;">BITPLANE 1 OFFSET</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:12px;color:#555;font-family:monospace;">$</span>
+        <input type="text" id="bp1-offset" value="0800" maxlength="6"
+          style="width:72px;background:#0e0e14;border:0.5px solid #2a2a38;color:#4ab8ff;
+                 padding:4px 7px;border-radius:5px;font-size:13px;font-family:monospace;letter-spacing:.08em;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <button onclick="stepOffset('bp1-offset',0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#4ab8ff;cursor:pointer;font-size:11px;line-height:1.4;">▲</button>
+          <button onclick="stepOffset('bp1-offset',-0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#4ab8ff;cursor:pointer;font-size:11px;line-height:1.4;">▼</button>
+        </div>
+      </div>
+    </div>
+    <div id="bp2-offset-group">
+      <div style="font-size:10px;color:#444;margin-bottom:4px;letter-spacing:.06em;">BITPLANE 2 OFFSET</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:12px;color:#555;font-family:monospace;">$</span>
+        <input type="text" id="bp2-offset" value="1000" maxlength="6"
+          style="width:72px;background:#0e0e14;border:0.5px solid #2a2a38;color:#e0a0ff;
+                 padding:4px 7px;border-radius:5px;font-size:13px;font-family:monospace;letter-spacing:.08em;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <button onclick="stepOffset('bp2-offset',0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#e0a0ff;cursor:pointer;font-size:11px;line-height:1.4;">▲</button>
+          <button onclick="stepOffset('bp2-offset',-0x20)" style="padding:1px 6px;border-radius:3px;border:0.5px solid #2a2a38;background:#1a1a24;color:#e0a0ff;cursor:pointer;font-size:11px;line-height:1.4;">▼</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div id="tile-count-label" style="font-size:10px;color:#444;margin-bottom:4px;letter-spacing:.06em;">TILE COUNT</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <input type="text" id="bin-tile-count" value="59" maxlength="6"
+          style="width:60px;background:#0e0e14;border:0.5px solid #2a2a38;color:#bbb;
+                 padding:4px 7px;border-radius:5px;font-size:13px;font-family:monospace;">
+        <select id="tile-unit" onchange="onTileUnitChange()"
+          style="background:#0e0e14;border:0.5px solid #2a2a38;color:#666;
+                 padding:3px 5px;border-radius:4px;font-size:11px;font-family:monospace;">
+          <option value="tiles">tiles</option>
+          <option value="subtiles">sub-tiles</option>
+        </select>
+      </div>
+      <div id="tile-count-hint" style="font-size:9px;color:#2a2a3a;margin-top:3px;font-family:monospace;"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-self:flex-end;padding-bottom:2px;">
+      <label class="check" style="margin:0;"><input type="checkbox" id="use-bp1" onchange="toggleBp1Bp2()" checked> 2nd bitplane</label>
+      <label class="check" style="margin:0;"><input type="checkbox" id="use-bp2" onchange="toggleBp1Bp2()" checked> 3rd bitplane</label>
+      <button class="btn active" id="btn-bin-reload">Reload</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;align-self:center;font-size:10px;font-family:monospace;">
+      <div id="bin-offset-info" style="color:#333;"></div>
+      <div id="bin-file-list" style="color:#444;line-height:1.7;"></div>
+    </div>
+  </div>
+</div>
+
+<div class="row" id="main-ui" style="display:none">
+  <div class="panel" style="min-width:180px;display:flex;flex-direction:column;">
+    <h2>Source image</h2>
+    <div class="cview" style="flex:1;overflow:auto;"><canvas id="src-canvas"></canvas></div>
+    <div class="info" id="src-info"></div>
+
+  </div>
+
+  <div class="panel grow" style="display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <h2 style="margin:0;">Tiles</h2>
+      <div id="subtile-legend" style="display:flex;gap:4px;align-items:center;">
+        <div style="background:#1D9E7522;border:1px solid #1D9E75;border-radius:3px;padding:2px 7px;font-size:10px;color:#1D9E75;font-family:monospace;">①&nbsp;TL</div>
+        <div style="background:#534AB722;border:1px solid #8070cc;border-radius:3px;padding:2px 7px;font-size:10px;color:#a090ff;font-family:monospace;">②&nbsp;TR</div>
+        <div style="background:#D85A3022;border:1px solid #D85A30;border-radius:3px;padding:2px 7px;font-size:10px;color:#ff8060;font-family:monospace;">③&nbsp;BL</div>
+        <div style="background:#185FA522;border:1px solid #185FA5;border-radius:3px;padding:2px 7px;font-size:10px;color:#4090ff;font-family:monospace;">④&nbsp;BR</div>
+      </div>
+      <label class="check" style="margin:0;"><input type="checkbox" id="show-quads" checked> Quadrant overlay</label>
+      <button class="btn" id="btn-shift-l" style="margin-left:auto;opacity:0.35;" onclick="shiftSelected('left')" title="Shift tile left">&#8592; Shift</button>
+      <button class="btn" id="btn-shift-r" style="opacity:0.35;" onclick="shiftSelected('right')" title="Shift tile right">Shift &#8594;</button>
+      <button class="btn" id="btn-undo" style="opacity:0.35;" onclick="undoEdit()" title="Undo (Ctrl+Z)">Undo</button>
+      <button class="btn" id="btn-redo" style="opacity:0.35;" onclick="redoEdit()" title="Redo (Ctrl+Y)">Redo</button>
+      <button class="btn" id="btn-edit-delete" style="opacity:0.35;" onclick="toggleDeleteMode()">Delete tile</button>
+      <button class="btn" id="btn-edit-pixel" style="opacity:0.35;" onclick="togglePixelMode()">Delete pixel</button>
+      <button class="btn" id="btn-edit-draw" style="opacity:0.35;" onclick="toggleDrawMode()">Draw pixel</button>
+      <button class="btn" id="btn-idx" style="user-select:none;opacity:0.35;"
+        onmousedown="setShowIdx(true)" onmouseup="setShowIdx(false)"
+        onmouseleave="setShowIdx(false)" ontouchstart="setShowIdx(true)" ontouchend="setShowIdx(false)">Tile index</button>
+      <button class="btn" id="btn-sub" style="user-select:none;opacity:0.35;"
+        onmousedown="setShowSub(true)" onmouseup="setShowSub(false)"
+        onmouseleave="setShowSub(false)" ontouchstart="setShowSub(true)" ontouchend="setShowSub(false)">Sub-tile order</button>
+    </div>
+    <div id="tile-grid-wrap" style="flex:1;max-height:none;"></div>
+    <div class="info" id="proc-info"></div>
+  </div>
+</div>
+
+
+<div id="pal-editor-panel" style="display:none;margin-top:4px;">
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+      <h2 style="margin:0;">9-bit palette editor</h2>
+      <span style="font-size:10px;color:#333;font-family:monospace;">R&thinsp;G&thinsp;B each 0–7 (3 bits) &nbsp;·&nbsp; 2 bytes/colour &nbsp;·&nbsp; exported negated</span>
+      <div style="display:flex;gap:6px;margin-left:auto;">
+        <button class="btn primary" id="btn-import-pal">Import palette .asm</button>
+        <input type="file" id="pal-import-fi" accept=".asm,.s,.z80,.inc" style="display:none">
+        <button class="btn primary" id="btn-export-pal">Export palette .asm</button>
+      </div>
+    </div>
+    <div id="pal-editor-rows" style="display:flex;flex-wrap:wrap;gap:12px;"></div>
+  </div>
+</div>
+
+<div id="bp-panel" style="display:none;margin-top:4px;">
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+
+    <div class="panel grow">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <label class="check" style="margin:0;gap:6px;"><input type="checkbox" id="bp0-enabled" checked onchange="setBpEnabled(0,this.checked)"><h2 style="margin:0;display:inline;">Bitplane 0 — LSB</h2></label>
+        <span style="font-size:10px;color:#333;font-family:monospace;">color index bit 0 · white=1 black=0</span>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <span style="font-size:10px;color:#333;">bg</span>
+          <button class="bp-bg-btn on" data-plane="0" data-bg="#000" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#000;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="0" data-bg="#1a1a28" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#1a1a28;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="0" data-bg="#fff" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#fff;cursor:pointer;padding:0;"></button>
+        </div>
+      </div>
+      <div id="bp0-wrap" style="display:flex;flex-wrap:wrap;gap:2px;background:#000;border-radius:5px;padding:6px;max-height:320px;overflow:auto;"></div>
+    </div>
+
+    <div class="panel grow">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <label class="check" style="margin:0;gap:6px;"><input type="checkbox" id="bp1-enabled" checked onchange="setBpEnabled(1,this.checked)"><h2 style="margin:0;display:inline;">Bitplane 1 — bit 1</h2></label>
+        <span style="font-size:10px;color:#333;font-family:monospace;">color index bit 1 · white=1 black=0</span>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <span style="font-size:10px;color:#333;">bg</span>
+          <button class="bp-bg-btn on" data-plane="1" data-bg="#000" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#000;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="1" data-bg="#1a1a28" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#1a1a28;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="1" data-bg="#fff" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#fff;cursor:pointer;padding:0;"></button>
+        </div>
+      </div>
+      <div id="bp1-wrap" style="display:flex;flex-wrap:wrap;gap:2px;background:#000;border-radius:5px;padding:6px;max-height:320px;overflow:auto;"></div>
+    </div>
+
+    <div class="panel grow" id="bp2-panel" style="display:none;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <label class="check" style="margin:0;gap:6px;"><input type="checkbox" id="bp2-enabled" checked onchange="setBpEnabled(2,this.checked)"><h2 style="margin:0;display:inline;">Bitplane 2 — bit 2</h2></label>
+        <span style="font-size:10px;color:#333;font-family:monospace;">color index bit 2 · white=1 black=0</span>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <span style="font-size:10px;color:#333;">bg</span>
+          <button class="bp-bg-btn on" data-plane="2" data-bg="#000" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#000;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="2" data-bg="#1a1a28" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#1a1a28;cursor:pointer;padding:0;"></button>
+          <button class="bp-bg-btn" data-plane="2" data-bg="#fff" style="width:18px;height:18px;border-radius:3px;border:1px solid #444;background:#fff;cursor:pointer;padding:0;"></button>
+        </div>
+      </div>
+      <div id="bp2-wrap" style="display:flex;flex-wrap:wrap;gap:2px;background:#000;border-radius:5px;padding:6px;max-height:320px;overflow:auto;"></div>
+    </div>
+
+  </div>
+</div>
+
+
+<div id="col-panel" style="display:none;margin-top:4px;">
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+
+    <div class="panel grow">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <h2 style="margin:0;">File layout — BP0 columns</h2>
+        <span style="font-size:10px;color:#333;font-family:monospace;">each tile = 8×32 column · TL→TR→BL→BR top to bottom</span>
+      </div>
+      <div class="cview" style="max-height:200px;"><canvas id="col-bp0" style="display:block;"></canvas></div>
+    </div>
+
+    <div class="panel grow">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <h2 style="margin:0;">File layout — BP1 columns</h2>
+        <span style="font-size:10px;color:#333;font-family:monospace;">each tile = 8×32 column · TL→TR→BL→BR top to bottom</span>
+      </div>
+      <div class="cview" style="max-height:200px;"><canvas id="col-bp1" style="display:block;"></canvas></div>
+    </div>
+
+    <div class="panel grow" id="col-bp2-panel" style="display:none;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <h2 style="margin:0;">File layout — BP2 columns</h2>
+        <span style="font-size:10px;color:#333;font-family:monospace;">each tile = 8×32 column · TL→TR→BL→BR top to bottom</span>
+      </div>
+      <div class="cview" style="max-height:200px;"><canvas id="col-bp2" style="display:block;"></canvas></div>
+    </div>
+
+  </div>
+</div>
+
+
+
+
+<div id="anim-panel" style="display:none;margin-top:4px;">
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+      <h2 style="margin:0;">Animation preview</h2>
+      <span style="font-size:10px;color:#333;font-family:monospace;">3-tile-wide preview · sprite centred · shift offsets in pixels (clamped to &#177;1 tile)</span>
+    </div>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+
+      <!-- Sequencer inputs -->
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:220px;">
+        <div style="font-size:10px;color:#444;letter-spacing:.06em;">TILE SEQUENCE</div>
+        <textarea id="anim-seq" rows="3" placeholder="e.g. 0,1,2,3"
+          style="background:#0e0e14;border:0.5px solid #2a2a38;color:#bbb;
+                 padding:6px 8px;border-radius:5px;font-size:12px;font-family:monospace;
+                 resize:vertical;width:200px;line-height:1.6;"></textarea>
+
+        <div style="font-size:10px;color:#444;letter-spacing:.06em;margin-top:4px;">SHIFT SEQUENCE <span style="color:#2a2a3a;">(pixels per frame)</span></div>
+        <textarea id="anim-shift" rows="3" placeholder="e.g. 0,0,0,0&#10;or 0,8,16,24&#10;or 0,-8,-16,-24"
+          style="background:#0e0e14;border:0.5px solid #2a2a38;color:#88aaff;
+                 padding:6px 8px;border-radius:5px;font-size:12px;font-family:monospace;
+                 resize:vertical;width:200px;line-height:1.6;"></textarea>
+        <div style="font-size:10px;color:#2a2a3a;font-family:monospace;" id="anim-shift-hint"></div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;">
+          <div style="font-size:10px;color:#444;letter-spacing:.06em;">FPS</div>
+          <input type="range" id="anim-fps" min="1" max="30" value="8" style="width:80px;accent-color:#4ab8ff;">
+          <span id="anim-fps-val" style="font-size:11px;font-family:monospace;color:#888;min-width:24px;">8</span>
+          <div style="font-size:10px;color:#444;letter-spacing:.06em;">ZOOM</div>
+          <select id="anim-zoom" style="background:#0e0e14;border:0.5px solid #2a2a38;color:#bbb;padding:3px 6px;border-radius:4px;font-size:11px;">
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4" selected>4x</option>
+            <option value="6">6x</option>
+            <option value="8">8x</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn active" id="anim-play-btn" onclick="toggleAnim()">&#9654; Play</button>
+          <button class="btn" onclick="animStep(-1)">&#9664;</button>
+          <button class="btn" onclick="animStep(1)">&#9654;</button>
+        </div>
+        <div style="font-size:10px;font-family:monospace;color:#333;" id="anim-info"></div>
+      </div>
+
+      <!-- Preview canvas - 3 tiles wide -->
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:10px;color:#444;letter-spacing:.06em;">PREVIEW</div>
+        <div style="background:#0e0e14;border-radius:6px;padding:8px;display:inline-block;line-height:0;">
+          <canvas id="anim-canvas" style="image-rendering:pixelated;display:block;"></canvas>
+        </div>
+        <div style="font-size:10px;font-family:monospace;color:#444;" id="anim-frame-label"></div>
+      </div>
+
+      <!-- Frame strip -->
+      <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:140px;">
+        <div style="font-size:10px;color:#444;letter-spacing:.06em;">FRAMES</div>
+        <div id="anim-strip" style="display:flex;flex-wrap:wrap;gap:3px;background:#0e0e14;border-radius:5px;padding:6px;max-height:200px;overflow:auto;"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- 9-bit colour picker modal -->
+<div id="pal9-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+  <div style="background:#1a1a24;border:0.5px solid #2a2a38;border-radius:10px;padding:20px;min-width:260px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:14px;">
+      9-bit colour picker &nbsp;·&nbsp; <span id="pal9-title" style="color:#888;"></span>
+    </div>
+
+    <!-- Preview swatch -->
+    <div id="pal9-preview" style="width:100%;height:40px;border-radius:6px;border:0.5px solid #2a2a38;margin-bottom:14px;transition:background .1s;"></div>
+
+    <!-- R slider -->
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:11px;color:#ff8888;font-family:monospace;">R</span>
+        <span id="pal9-rv" style="font-size:11px;font-family:monospace;color:#aaa;">0</span>
+      </div>
+      <input type="range" id="pal9-r" min="0" max="7" value="0" style="width:100%;accent-color:#ff4444;">
+    </div>
+
+    <!-- G slider -->
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:11px;color:#88ff88;font-family:monospace;">G</span>
+        <span id="pal9-gv" style="font-size:11px;font-family:monospace;color:#aaa;">0</span>
+      </div>
+      <input type="range" id="pal9-g" min="0" max="7" value="0" style="width:100%;accent-color:#44ff44;">
+    </div>
+
+    <!-- B slider -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:11px;color:#8888ff;font-family:monospace;">B</span>
+        <span id="pal9-bv" style="font-size:11px;font-family:monospace;color:#aaa;">0</span>
+      </div>
+      <input type="range" id="pal9-b" min="0" max="7" value="0" style="width:100%;accent-color:#4444ff;">
+    </div>
+
+    <!-- Quick palette: 8 primary colours -->
+    <div style="font-size:10px;color:#444;margin-bottom:6px;letter-spacing:.06em;">QUICK SELECT</div>
+    <div style="display:flex;gap:5px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="pal9-quick" data-rgb="0,0,0" style="background:#000;" title="Black"></button>
+      <button class="pal9-quick" data-rgb="0,0,7" style="background:#0000ff;" title="Blue"></button>
+      <button class="pal9-quick" data-rgb="7,0,0" style="background:#ff0000;" title="Red"></button>
+      <button class="pal9-quick" data-rgb="7,0,7" style="background:#ff00ff;" title="Magenta"></button>
+      <button class="pal9-quick" data-rgb="0,7,0" style="background:#00ff00;" title="Green"></button>
+      <button class="pal9-quick" data-rgb="0,7,7" style="background:#00ffff;" title="Cyan"></button>
+      <button class="pal9-quick" data-rgb="7,7,0" style="background:#ffff00;" title="Yellow"></button>
+      <button class="pal9-quick" data-rgb="7,7,7" style="background:#ffffff;" title="White"></button>
+    </div>
+
+    <!-- Bytes readout -->
+    <div style="font-size:11px;font-family:monospace;color:#444;margin-bottom:14px;" id="pal9-bytes"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closePal9Modal(false)">Cancel</button>
+      <button class="btn primary" onclick="closePal9Modal(true)">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let srcImg=null,srcW=0,srcH=0;
+let tileCountX=0,tileCountY=0,totalTiles=0;
+let palette=[],indexMap=[],pixels=null;
+let pixelIndices=null; // Uint8Array: colour index per pixel, source of truth for edits
+let lsbSwapped=false;
+let threePlaneMode=true;
+let onePlaneMode=false; // true when only BP0 is active (2 colours)
+const bpEnabled=[true,true,true]; // per-plane enabled flags
+
+// ── File loading ───────────────────────────────────────────────────────────
+document.getElementById('pick-btn').onclick=()=>document.getElementById('fi').click();
+document.getElementById('fi').addEventListener('change',e=>{
+  if(e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+// ── Drop onto buttons ─────────────────────────────────────────────────────
+function addDropTarget(btnId, onDrop){
+  const btn=document.getElementById(btnId);
+  const origBorder=btn.style.borderColor;
+  const origColor=btn.style.color;
+  function resetBtn(){ btn.style.borderColor=origBorder; btn.style.color=origColor; }
+  btn.addEventListener('dragenter',e=>{e.preventDefault();e.stopPropagation();btn.style.borderColor='#6a8a6a';btn.style.color='#ccc';});
+  btn.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();});
+  btn.addEventListener('dragleave',e=>{resetBtn();});
+  btn.addEventListener('drop',e=>{
+    e.preventDefault();e.stopPropagation();
+    resetBtn();
+    const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f) onDrop(f);
+  });
+}
+
+// Load PNG/BMP — accepts image files only
+addDropTarget('pick-btn', f=>{
+  const ext=f.name.includes('.')?f.name.split('.').pop().toLowerCase():'';
+  const imgExts=['png','bmp','gif','jpg','jpeg','webp'];
+  if(imgExts.includes(ext)) loadFile(f);
+  else showErr('Drop an image file (PNG, BMP, GIF) onto this button.');
+});
+
+// Load .bin/.rom — accepts any non-image as binary
+addDropTarget('bin-pick-btn', f=>{
+  const ext=f.name.includes('.')?f.name.split('.').pop().toLowerCase():'';
+  const imgExts=['png','bmp','gif','jpg','jpeg','webp'];
+  if(imgExts.includes(ext)) showErr('Drop a binary file onto this button, not an image.');
+  else loadBinFile(f);
+});
+
+// Append — always treats drop as binary append
+addDropTarget('bin-append-btn', f=>{
+  if(!rawBinData){showErr('Load a binary first before appending.');return;}
+  appendBinFile(f);
+});
+
+function loadFile(file){
+  hideErr();
+  setStatus('Loading '+file.name+' ('+Math.round(file.size/1024)+'KB)…');
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      srcImg=img; srcW=img.naturalWidth; srcH=img.naturalHeight;
+      if(srcW<16||srcH<16){showErr('Image too small — needs to be at least 16×16 px.');return;}
+      if(srcW%16!==0||srcH%16!==0){
+        showErr(`Image dimensions ${srcW}×${srcH} are not multiples of 16.\nTile grid: ${Math.floor(srcW/16)}×${Math.floor(srcH/16)} (${srcW%16}px extra width, ${srcH%16}px extra height ignored).`);
+      }
+      // Clear any binary state when loading an image
+      rawBinData=null; rawBinName=''; rawBinFiles=[]; binExportPlaneBytes=null;
+  pixelIndices=null;
+  undoStack.length=0; redoStack.length=0; updateUndoButtons();
+      document.getElementById('bin-offset-panel').style.display='none';
+      document.getElementById('bin-file-list').innerHTML='';
+      document.getElementById('bin-offset-info').textContent='';
+      document.getElementById('bin-append-btn').disabled=true;
+      document.getElementById('bin-append-btn').style.color='#444';
+      document.getElementById('bin-append-btn').querySelector('svg').style.opacity='0.5';
+      processImage();
+    };
+    img.onerror=()=>showErr('Could not decode image. Try saving as PNG from your editor.');
+    img.src=e.target.result;
+  };
+  reader.onerror=()=>showErr('FileReader error — could not read the file.');
+  reader.readAsDataURL(file);
+}
+
+function showErr(msg){
+  const el=document.getElementById('errbar');
+  el.textContent=msg; el.style.display='block';
+  setStatus('');
+}
+function hideErr(){document.getElementById('errbar').style.display='none';}
+
+// ── Process ────────────────────────────────────────────────────────────────
+function processImage(){
+  const off=document.createElement('canvas');
+  off.width=srcW; off.height=srcH;
+  const ctx=off.getContext('2d');
+  ctx.drawImage(srcImg,0,0);
+  pixels=ctx.getImageData(0,0,srcW,srcH).data;
+
+  tileCountX=Math.floor(srcW/16);
+  tileCountY=Math.floor(srcH/16);
+  totalTiles=tileCountX*tileCountY;
+
+  detectPalette();
+  buildPixelIndices();
+
+  document.getElementById('main-ui').style.display='flex';
+  document.getElementById('pal-editor-panel').style.display='block';
+  document.getElementById('anim-panel').style.display='block';
+  document.getElementById('bp-panel').style.display='block';
+  document.getElementById('col-panel').style.display='block';
+  
+
+  drawSource();
+  buildPaletteUI();
+  seedPalFromDetected();
+  renderTiles();
+  if(animFrames&&animFrames.length){buildAnimStrip();updateAnimDisplay();}
+  updateExportButtons();
+  setStatus('Loaded: '+srcW+'×'+srcH+'px · '+tileCountX+'×'+tileCountY+' tiles ('+totalTiles+' total)');
+}
+
+function lum(r,g,b){return 0.299*r+0.587*g+0.114*b;}
+function rgbHex(r,g,b){return'#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');}
+
+function detectPalette(){
+  const colorMap={};
+  for(let i=0;i<pixels.length;i+=4){
+    if(pixels[i+3]<128)continue;
+    const r=pixels[i],g=pixels[i+1],b=pixels[i+2];
+    const k=`${r},${g},${b}`;
+    if(!colorMap[k]) colorMap[k]={r,g,b,count:0,hex:rgbHex(r,g,b)};
+    colorMap[k].count++;
+  }
+  const maxCols=threePlaneMode?8:onePlaneMode?2:4;
+  let found=Object.values(colorMap).sort((a,b)=>lum(a.r,a.g,a.b)-lum(b.r,b.g,b.b));
+  if(found.length>maxCols){
+    showErr(`Warning: ${found.length} unique colors found — expected ≤${maxCols}. Taking ${maxCols} most common.`);
+    found=found.sort((a,b)=>b.count-a.count).slice(0,maxCols).sort((a,b)=>lum(a.r,a.g,a.b)-lum(b.r,b.g,b.b));
+  }
+  palette=found;
+  while(palette.length<maxCols) palette.unshift({r:0,g:0,b:0,hex:'#000000',transparent:true});
+  indexMap=palette.map((_,i)=>i);
+}
+
+function getPixelIndex(px,py){
+  if(pixelIndices){
+    let ci=pixelIndices[py*srcW+px];
+    if(onePlaneMode)  ci &= 1;   // only bit 0
+    else if(!threePlaneMode) ci &= 3; // bits 0-1
+    return ci;
+  }
+  return getPixelIndexFromRGBA(px,py);
+}
+
+function getPixelIndexFromRGBA(px,py){
+  const i=(py*srcW+px)*4;
+  if(pixels[i+3]<128) return 0;
+  const r=pixels[i],g=pixels[i+1],b=pixels[i+2];
+  let best=0,bestD=1e18;
+  for(let p=0;p<palette.length;p++){
+    if(palette[p].transparent) continue;
+    const dr=r-palette[p].r,dg=g-palette[p].g,db=b-palette[p].b;
+    const d=dr*dr+dg*dg+db*db;
+    if(d<bestD){bestD=d;best=p;}
+  }
+  return indexMap[best];
+}
+
+function buildPixelIndices(){
+  pixelIndices=new Uint8Array(srcW*srcH);
+  for(let y=0;y<srcH;y++) for(let x=0;x<srcW;x++)
+    pixelIndices[y*srcW+x]=getPixelIndexFromRGBA(x,y);
+}
+
+// ── Source canvas ──────────────────────────────────────────────────────────
+function drawSource(){
+  const cv=document.getElementById('src-canvas');
+  const z=Math.max(1,Math.min(4,Math.floor(256/Math.max(srcW,srcH))));
+  cv.width=srcW*z; cv.height=srcH*z;
+  const ctx=cv.getContext('2d');
+  ctx.imageSmoothingEnabled=false;
+  // Draw directly from pixels — no srcImg needed
+  if(z===1){
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer),srcW,srcH),0,0);
+  } else {
+    // Scale up using an offscreen 1:1 canvas then drawImage
+    const tmp=document.createElement('canvas');
+    tmp.width=srcW; tmp.height=srcH;
+    tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer),srcW,srcH),0,0);
+    ctx.drawImage(tmp,0,0,srcW*z,srcH*z);
+  }
+  document.getElementById('src-info').innerHTML=
+    `<span>${srcW}×${srcH}px</span> · <span>${tileCountX}×${tileCountY}</span> tiles · <span>${totalTiles}</span> total`;
+}
+
+// ── Palette UI ─────────────────────────────────────────────────────────────
+function buildPaletteUI(){
+  // pal-ui panel removed — rebuild the palette editor instead
+  buildPalEditor();
+}
+
+// ── Tile rendering ─────────────────────────────────────────────────────────
+let showIdx=false;
+let tileCanvases=[];   // keep refs so we can redraw without rebuilding DOM
+
+function setShowIdx(on){
+  if(!totalTiles) return;
+  showIdx=on;
+  overlayIndices(on);
+}
+
+let showSub=false;
+function setShowSub(on){
+  if(!totalTiles) return;
+  showSub=on;
+  overlaySub(on);
+  const leg=document.getElementById('subtile-legend');
+
+}
+
+function drawTileBase(ctx,tx,ty,z){
+  for(let py=0;py<16;py++) for(let px=0;px<16;px++){
+    const byteCol=px&8, bitPos=px&7;
+    const srcPx=lsbSwapped?byteCol+(7-bitPos):px;
+    const sx=tx*16+srcPx, sy=ty*16+py;
+    let ci=getPixelIndex(sx,sy);
+    if(!bpEnabled[0]) ci&=~1;
+    if(!bpEnabled[1]) ci&=~2;
+    if(!bpEnabled[2]) ci&=~4;
+    if(ci===0){
+      ctx.fillStyle=((px+py)%2===0)?'#1c1c28':'#141420';
+    } else {
+      // Use 9-bit palette if available, else fall back to source pixel
+      const pal9=palRGB9[ci];
+      if(pal9){
+        const r=bit3ToRgb8(pal9[0]),g=bit3ToRgb8(pal9[1]),b=bit3ToRgb8(pal9[2]);
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+      } else {
+        const ii=(sy*srcW+sx)*4;
+        ctx.fillStyle=`rgb(${pixels[ii]},${pixels[ii+1]},${pixels[ii+2]})`;
+      }
+    }
+    ctx.fillRect(px*z,py*z,z,z);
+  }
+  if(document.getElementById('show-quads').checked){
+    ctx.strokeStyle='rgba(255,80,80,0.55)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+    ctx.beginPath();ctx.moveTo(8*z,0);ctx.lineTo(8*z,16*z);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,8*z);ctx.lineTo(16*z,8*z);ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function overlaySub(on){
+  const z=3;
+  // quad: [rowOff,colOff, label, color fill, text color]
+  const quads=[
+    [0,0,'rgba(29,158,117,0.55)','#6effd0'],
+    [0,8,'rgba(83,74,183,0.55)','#c0b8ff'],
+    [8,0,'rgba(216,90,48,0.55)','#ffb090'],
+    [8,8,'rgba(24,95,165,0.55)','#88ccff'],
+  ];
+  tileCanvases.forEach(({cv,tx,ty,idx})=>{
+    const ctx=cv.getContext('2d');
+    drawTileBase(ctx,tx,ty,z);
+    if(on){
+      quads.forEach(([ro,co,fill,textCol],qi)=>{
+        const qx=co*z, qy=ro*z, qw=8*z, qh=8*z;
+        const subIdx=idx*4+qi;
+        const subHex='$'+subIdx.toString(16).toUpperCase().padStart(2,'0');
+        ctx.fillStyle=fill;
+        ctx.fillRect(qx,qy,qw,qh);
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        // Sub-tile global index (dec + hex)
+        ctx.font=`bold ${z*4}px monospace`;
+        ctx.fillStyle=textCol;
+        ctx.fillText(String(subIdx), qx+qw/2, qy+qh/2 - z*2);
+        ctx.font=`${z*3}px monospace`;
+        ctx.fillStyle=textCol;
+        ctx.globalAlpha=0.75;
+        ctx.fillText(subHex, qx+qw/2, qy+qh/2 + z*3);
+        ctx.globalAlpha=1;
+      });
+    }
+  });
+}
+
+function overlayIndices(on){
+  const z=3;
+  tileCanvases.forEach(({cv,tx,ty,idx})=>{
+    const ctx=cv.getContext('2d');
+    drawTileBase(ctx,tx,ty,z);
+    if(on){
+      ctx.fillStyle='rgba(0,0,0,0.62)';
+      ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      const W=cv.width, H=cv.height;
+
+      // Tile index — decimal large, hex smaller below
+      const dec=String(idx);
+      const hex='$'+idx.toString(16).toUpperCase().padStart(4,'0');
+      ctx.font=`bold ${z*5}px monospace`;
+      ctx.fillStyle='#ffffff';
+      ctx.fillText(dec, W/2, H*0.22);
+      ctx.font=`${z*3}px monospace`;
+      ctx.fillStyle='rgba(180,220,255,0.85)';
+      ctx.fillText(hex, W/2, H*0.40);
+
+      // First byte offset of this tile in BP0
+      const byteOff='$'+(idx*32).toString(16).toUpperCase().padStart(4,'0');
+      ctx.font=`${z*3}px monospace`;
+      ctx.fillStyle='rgba(110,220,110,0.92)';
+      ctx.fillText(byteOff, W/2, H*0.68);
+    }
+  });
+}
+
+function renderTiles(){
+  const wrap=document.getElementById('tile-grid-wrap');
+  wrap.innerHTML='';
+  tileCanvases=[];
+  const z=3;
+  let idx=0;
+  for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+    const cv=document.createElement('canvas');
+    cv.className='tile-thumb';
+    cv.width=16*z; cv.height=16*z;
+    const ctx=cv.getContext('2d');
+    drawTileBase(ctx,tx,ty,z);
+    cv.addEventListener('click',(e)=>{
+      if(pixelMode||drawMode||deleteMode) return;
+      // Select this tile
+      document.querySelectorAll('.tile-thumb.tile-selected').forEach(el=>el.classList.remove('tile-selected'));
+      if(selectedTile&&selectedTile.tx===tx&&selectedTile.ty===ty){
+        selectedTile=null; // deselect on second click
+      } else {
+        selectedTile={tx,ty};
+        cv.classList.add('tile-selected');
+      }
+    });
+    cv.addEventListener('mousedown',(e)=>{
+      if(!pixelMode&&!drawMode&&!deleteMode) return;
+      isMouseDown=true;
+      saveUndoSnapshot();
+      const rect=cv.getBoundingClientRect(), z=cv.width/16;
+      const lx=Math.min(Math.floor((e.clientX-rect.left)/z),15);
+      const ly=Math.min(Math.floor((e.clientY-rect.top)/z),15);
+      if(deleteMode){activeTool='delete';deleteTile(tx,ty);}
+      else{activeTool=pixelMode?'delete':'draw'; applyPixelOp(tx,ty,lx,ly,activeTool);}
+    });
+    cv.addEventListener('mousemove',(e)=>{
+      if(!isMouseDown||!activeTool||deleteMode) return;
+      const rect=cv.getBoundingClientRect(), z=cv.width/16;
+      const lx=Math.min(Math.floor((e.clientX-rect.left)/z),15);
+      const ly=Math.min(Math.floor((e.clientY-rect.top)/z),15);
+      applyPixelOp(tx,ty,lx,ly,activeTool);
+    });
+    if(selectedTile&&selectedTile.tx===tx&&selectedTile.ty===ty)
+      cv.classList.add('tile-selected');
+    tileCanvases.push({cv,tx,ty,idx});
+    wrap.appendChild(cv);
+    idx++;
+  }
+  document.getElementById('proc-info').innerHTML='';
+  renderBitplanes();
+}
+
+function nextHundred(n){return Math.ceil(n/0x100)*0x100;}
+
+function setBpEnabled(plane, on){
+  bpEnabled[plane]=on;
+  const wrap=document.getElementById('bp'+plane+'-wrap');
+  if(wrap) wrap.style.opacity=on?'1':'0.25';
+  if(totalTiles>0){ renderTiles(); renderBitplanes(); }
+}
+
+
+// ── Tile editing ──────────────────────────────────────────────────────────
+let deleteMode=false;
+let selectedTile=null; // {tx,ty} of currently selected tile
+
+let pixelMode=false;
+
+let drawMode=false;
+let drawColour=2; // default: fill (index 2)
+let isMouseDown=false;
+let activeTool=null; // 'delete'|'draw' for drag ops on main tile grid
+let activePlaneTool=null; // {plane,tool}
+
+function toggleDrawMode(){
+  if(!totalTiles) return;
+  deactivateAllModes();
+  drawMode=!drawMode;
+  document.getElementById('btn-edit-draw').classList.toggle('active',drawMode);
+  document.getElementById('tile-grid-wrap').classList.toggle('draw-mode',drawMode);
+  ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach(id=>{
+    const w=document.getElementById(id); if(w) w.classList.toggle('draw-mode-active',drawMode);
+  });
+}
+
+function deactivateAllModes(){
+  if(deleteMode){ deleteMode=false; applyDeleteModeClasses(false); }
+  if(pixelMode){
+    pixelMode=false;
+    document.getElementById('btn-edit-pixel').classList.remove('active');
+    document.getElementById('tile-grid-wrap').classList.remove('pixel-mode');
+    ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach(id=>{const w=document.getElementById(id);if(w)w.classList.remove('pixel-mode-active');});
+  }
+  if(drawMode){
+    drawMode=false;
+    document.getElementById('btn-edit-draw').classList.remove('active');
+
+    document.getElementById('tile-grid-wrap').classList.remove('draw-mode');
+    ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach(id=>{const w=document.getElementById(id);if(w)w.classList.remove('draw-mode-active');});
+  }
+}
+
+// ── Global mouse up to end drag operations ────────────────────────────────
+document.addEventListener('mouseup',()=>{isMouseDown=false;activeTool=null;activePlaneTool=null;commitUndo();});
+
+function applyPixelOp(tx,ty,lx,ly,tool){
+  if(tool==='delete') deletePixel(tx,ty,lx,ly);
+  else if(tool==='draw') drawPixel(tx,ty,lx,ly);
+}
+function applyPixelPlanOp(tx,ty,lx,ly,plane,tool){
+  if(tool==='delete') deletePixelPlane(tx,ty,lx,ly,plane);
+  else if(tool==='draw') drawPixelPlane(tx,ty,lx,ly,plane);
+}
+
+function drawPixel(tx,ty,localX,localY){
+  const srcX=lsbSwapped?(localX&8)+(7-(localX&7)):localX;
+  const sx=tx*16+srcX, sy=ty*16+localY;
+  pixelIndices[sy*srcW+sx]=drawColour;
+  bakeAndRefresh();
+}
+function drawPixelPlane(tx,ty,localX,localY,plane){
+  const srcX=lsbSwapped?(localX&8)+(7-(localX&7)):localX;
+  const sx=tx*16+srcX, sy=ty*16+localY;
+  pixelIndices[sy*srcW+sx] |= (1<<plane);
+  bakeAndRefresh();
+}
+
+
+function togglePixelMode(){
+  if(!totalTiles) return;
+  const next=!pixelMode;
+  deactivateAllModes();
+  pixelMode=next;
+  if(pixelMode){
+    document.getElementById('btn-edit-pixel').classList.add('active');
+    document.getElementById('tile-grid-wrap').classList.add('pixel-mode');
+    ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach(id=>{const w=document.getElementById(id);if(w)w.classList.add('pixel-mode-active');});
+  }
+}
+
+function deletePixel(tx,ty,localX,localY){
+  const srcX=lsbSwapped?(localX&8)+(7-(localX&7)):localX;
+  const sx=tx*16+srcX, sy=ty*16+localY;
+  pixelIndices[sy*srcW+sx]=0;
+  bakeAndRefresh();
+}
+
+function deletePixelPlane(tx,ty,localX,localY,plane){
+  const srcX=lsbSwapped?(localX&8)+(7-(localX&7)):localX;
+  const sx=tx*16+srcX, sy=ty*16+localY;
+  pixelIndices[sy*srcW+sx] &= ~(1<<plane);
+  bakeAndRefresh();
+}
+
+
+function applyDeleteModeClasses(on){
+  document.getElementById('tile-grid-wrap').classList.toggle('delete-mode', on);
+  ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach(id=>{
+    const w=document.getElementById(id); if(w) w.classList.toggle('delete-mode-active', on);
+  });
+  document.getElementById('btn-edit-delete').classList.toggle('active', on);
+}
+
+function toggleDeleteMode(){
+  if(!totalTiles) return;
+  const next=!deleteMode;
+  deactivateAllModes();
+  deleteMode=next;
+  if(deleteMode) applyDeleteModeClasses(true);
+}
+
+
+
+function bakeAndRefresh(){
+  // Update pixels array from pixelIndices + palRGB9 — synchronous, no round-trip
+  for(let y=0;y<srcH;y++) for(let x=0;x<srcW;x++){
+    const ci=pixelIndices[y*srcW+x];
+    const i=(y*srcW+x)*4;
+    if(ci===0){
+      pixels[i]=0; pixels[i+1]=0; pixels[i+2]=0; pixels[i+3]=0;
+    } else {
+      const p=palRGB9[ci]||[0,0,0];
+      pixels[i]=bit3ToRgb8(p[0]); pixels[i+1]=bit3ToRgb8(p[1]);
+      pixels[i+2]=bit3ToRgb8(p[2]); pixels[i+3]=255;
+    }
+  }
+  drawSource();
+  renderTiles();
+  renderBitplanes();
+}
+
+function deleteTilePlane(tx, ty, plane){
+  // Directly clear the plane bit in pixelIndices — no palette lookup needed
+  for(let py=0;py<16;py++) for(let px=0;px<16;px++){
+    const byteCol=px&8, bitPos=px&7;
+    const srcPx=lsbSwapped?byteCol+(7-bitPos):px;
+    const sx=tx*16+srcPx, sy=ty*16+py;
+    const i=sy*srcW+sx;
+    pixelIndices[i]=pixelIndices[i] & ~(1<<plane);
+  }
+  bakeAndRefresh();
+}
+
+function deleteTile(tx,ty){
+  for(let py=0;py<16;py++) for(let px=0;px<16;px++)
+    pixelIndices[(ty*16+py)*srcW+(tx*16+px)]=0;
+  bakeAndRefresh();
+}
+
+
+
+// ── Tile shift ────────────────────────────────────────────────────────────
+function shiftTile(tx, ty, dir){
+  // Shift all pixels in a 16×16 tile left or right by 1px.
+  // Wraps around within the tile boundary.
+  saveUndoSnapshot();
+  const ox=tx*16, oy=ty*16;
+  for(let py=0;py<16;py++){
+    const row=new Uint8Array(16);
+    for(let px=0;px<16;px++) row[px]=pixelIndices[(oy+py)*srcW+(ox+px)];
+    if(dir==='left'){
+      // shift left: pixel 0 wraps to 15
+      const tmp=row[0];
+      for(let px=0;px<15;px++) row[px]=row[px+1];
+      row[15]=tmp;
+    } else {
+      // shift right: pixel 15 wraps to 0
+      const tmp=row[15];
+      for(let px=15;px>0;px--) row[px]=row[px-1];
+      row[0]=tmp;
+    }
+    for(let px=0;px<16;px++) pixelIndices[(oy+py)*srcW+(ox+px)]=row[px];
+  }
+  commitUndo();
+  bakeAndRefresh();
+}
+
+function shiftSelected(dir){
+  if(!selectedTile){showErr('Click a tile first to select it, then use Shift.');return;}
+  shiftTile(selectedTile.tx, selectedTile.ty, dir);
+}
+
+// Keyboard shortcuts for shift when tile selected
+document.addEventListener('keydown',e=>{
+  if(!selectedTile) return;
+  if(e.key==='ArrowLeft'&&(e.ctrlKey||e.metaKey)){e.preventDefault();shiftSelected('left');}
+  if(e.key==='ArrowRight'&&(e.ctrlKey||e.metaKey)){e.preventDefault();shiftSelected('right');}
+});
+
+// ── Undo / Redo ───────────────────────────────────────────────────────────
+const undoStack=[], redoStack=[];
+const MAX_UNDO=50;
+let snapshotBeforeStroke=null;
+
+function snapshotIndices(){
+  return pixelIndices ? new Uint8Array(pixelIndices) : null;
+}
+
+function saveUndoSnapshot(){
+  // Called on mousedown — capture state before the stroke begins
+  snapshotBeforeStroke = snapshotIndices();
+}
+
+function commitUndo(){
+  // Called on mouseup — if anything changed, push snapshot to undo stack
+  if(!snapshotBeforeStroke) return;
+  // Quick check: did anything change?
+  let changed=false;
+  for(let i=0;i<pixelIndices.length;i++){
+    if(pixelIndices[i]!==snapshotBeforeStroke[i]){changed=true;break;}
+  }
+  if(changed){
+    undoStack.push(snapshotBeforeStroke);
+    if(undoStack.length>MAX_UNDO) undoStack.shift();
+    redoStack.length=0; // new action clears redo
+    updateUndoButtons();
+  }
+  snapshotBeforeStroke=null;
+}
+
+function undoEdit(){
+  if(!undoStack.length) return;
+  redoStack.push(snapshotIndices());
+  pixelIndices=undoStack.pop();
+  bakeAndRefresh();
+  updateUndoButtons();
+}
+
+function redoEdit(){
+  if(!redoStack.length) return;
+  undoStack.push(snapshotIndices());
+  pixelIndices=redoStack.pop();
+  bakeAndRefresh();
+  updateUndoButtons();
+}
+
+function updateUndoButtons(){
+  document.getElementById('btn-undo').style.opacity=undoStack.length?'1':'0.35';
+  document.getElementById('btn-redo').style.opacity=redoStack.length?'1':'0.35';
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){e.preventDefault();undoEdit();}
+  if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){e.preventDefault();redoEdit();}
+});
+
+// ── Bitplane preview ───────────────────────────────────────────────────────
+const bpBg=[,'#000','#000']; // per-plane background colour
+
+function renderBitplanes(){
+  renderColumnView();
+  // Show/hide BP2 panel
+  document.getElementById('bp2-panel').style.display=threePlaneMode?'':'none';
+  const planes=threePlaneMode?['bp0-wrap','bp1-wrap','bp2-wrap']:onePlaneMode?['bp0-wrap']:['bp0-wrap','bp1-wrap'];
+  planes.forEach((id,plane)=>{
+    const wrap=document.getElementById(id);
+    wrap.innerHTML='';
+    const z=3;
+    for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+      const cv=document.createElement('canvas');
+      cv.className='tile-thumb';
+      cv.width=16*z; cv.height=16*z;
+      drawBitplaneTile(cv,tx,ty,plane,z,bpBg[plane+1]||'#000');
+      cv.style.cursor='';
+      cv.addEventListener('mousedown',(e)=>{
+        if(!pixelMode&&!drawMode&&!deleteMode) return;
+        isMouseDown=true;
+        saveUndoSnapshot();
+        const rect=cv.getBoundingClientRect(), z=cv.width/16;
+        const lx=Math.min(Math.floor((e.clientX-rect.left)/z),15);
+        const ly=Math.min(Math.floor((e.clientY-rect.top)/z),15);
+        if(deleteMode){activePlaneTool={plane,tool:'delete'};deleteTilePlane(tx,ty,plane);}
+        else{const tool=pixelMode?'delete':'draw';activePlaneTool={plane,tool};applyPixelPlanOp(tx,ty,lx,ly,plane,tool);}
+      });
+      cv.addEventListener('mousemove',(e)=>{
+        if(!isMouseDown||!activePlaneTool||deleteMode) return;
+        const rect=cv.getBoundingClientRect(), z=cv.width/16;
+        const lx=Math.min(Math.floor((e.clientX-rect.left)/z),15);
+        const ly=Math.min(Math.floor((e.clientY-rect.top)/z),15);
+        applyPixelPlanOp(tx,ty,lx,ly,activePlaneTool.plane,activePlaneTool.tool);
+      });
+      wrap.appendChild(cv);
+    }
+    document.getElementById(id).parentElement.style.background=bpBg[plane+1]||'#000';
+    wrap.style.background=bpBg[plane+1]||'#000';
+  });
+}
+
+function drawBitplaneTile(cv,tx,ty,plane,z,bg){
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,cv.width,cv.height);
+  // LSB swap mirrors pixels within each 8-wide row segment (bit reversal = horizontal flip per byte)
+  for(let py=0;py<16;py++){
+    // which group of 8 does px belong to? col 0-7 = left byte, 8-15 = right byte
+    for(let px=0;px<16;px++){
+      const byteCol = px & 8;             // 0 for left half, 8 for right half
+      const bitPos  = px & 7;             // position within the byte 0-7
+      const srcX    = lsbSwapped ? byteCol + (7 - bitPos) : px;
+      const idx=getPixelIndex(tx*16+srcX, ty*16+py);
+      const bit=(idx>>plane)&1;
+      ctx.fillStyle=bit?'#ffffff':bg;
+      ctx.fillRect(px*z,py*z,z,z);
+    }
+  }
+  // Quadrant lines
+  ctx.strokeStyle='rgba(255,80,80,0.4)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+  ctx.beginPath();ctx.moveTo(8*z,0);ctx.lineTo(8*z,16*z);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,8*z);ctx.lineTo(16*z,8*z);ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// Background colour pickers for each bitplane
+document.querySelectorAll('.bp-bg-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const plane=parseInt(btn.dataset.plane);
+    bpBg[plane+1]=btn.dataset.bg;
+    // Update active state for this plane's buttons
+    document.querySelectorAll(`.bp-bg-btn[data-plane="${plane}"]`).forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    // Rerender just bitplane tiles
+    ['bp0-wrap','bp1-wrap','bp2-wrap'].forEach((id,p)=>{
+      if(p!==plane) return;
+      const wrap=document.getElementById(id);
+      wrap.style.background=bpBg[plane+1];
+      wrap.querySelectorAll('canvas').forEach((cv,i)=>{
+        const ty=Math.floor(i/tileCountX), tx=i%tileCountX;
+        drawBitplaneTile(cv,tx,ty,plane,3,bpBg[plane+1]);
+      });
+    });
+  });
+});
+
+
+
+// ── Encode ────────────────────────────────────────────────────────────────
+function reverseByte(b){let r=0;for(let i=0;i<8;i++)r|=((b>>i)&1)<<(7-i);return r;}
+
+function encodeTile(tx,ty){
+  const quads=[[0,0],[0,8],[8,0],[8,8]];
+  const bp0=[],bp1=[],bp2=[];
+  for(const[ro,co] of quads){
+    for(let r=0;r<8;r++){
+      let b0=0,b1=0,b2=0;
+      for(let c=0;c<8;c++){
+        const idx=getPixelIndex(tx*16+co+c, ty*16+ro+r);
+        if(bpEnabled[0]) b0|=((idx&1)<<(7-c));
+        if(bpEnabled[1]) b1|=(((idx>>1)&1)<<(7-c));
+        if(bpEnabled[2]) b2|=(((idx>>2)&1)<<(7-c));
+      }
+      bp0.push(lsbSwapped?reverseByte(b0):b0);
+      bp1.push(lsbSwapped?reverseByte(b1):b1);
+      bp2.push(lsbSwapped?reverseByte(b2):b2);
+    }
+  }
+  return{bp0,bp1,bp2};
+}
+
+function buildBinBuffer(){
+  const bp0size=totalTiles*32;
+  // If we loaded from binary, preserve the original plane spacing exactly
+  const bp1off=binExportPlaneBytes!=null ? binExportPlaneBytes     : nextHundred(bp0size);
+  const bp2off=binExportPlaneBytes!=null ? binExportPlaneBytes*2   : nextHundred(bp1off+totalTiles*32);
+  // Use binExportPlaneBytes for file size when set (preserves original plane size)
+  const planeBytes=binExportPlaneBytes!=null ? binExportPlaneBytes : bp0size;
+  const fileSize=threePlaneMode ? bp2off+planeBytes :
+                 onePlaneMode   ? planeBytes          :
+                                  bp1off+planeBytes;
+  const buf=new Uint8Array(fileSize);
+  let i=0;
+  for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+    const{bp0,bp1,bp2}=encodeTile(tx,ty);
+    bp0.forEach((b,j)=>{ if(i*32+j<bp1off) buf[i*32+j]=b; });
+    if(!onePlaneMode) bp1.forEach((b,j)=>{ if(bp1off+i*32+j<bp2off) buf[bp1off+i*32+j]=b; });
+    if(threePlaneMode) bp2.forEach((b,j)=>{ if(bp2off+i*32+j<fileSize) buf[bp2off+i*32+j]=b; });
+    i++;
+  }
+  return buf;
+}
+
+// ── BMP writer (24bpp, top-down) ──────────────────────────────────────────
+function buildBmpBuffer(){
+  const W=srcW,H=srcH;
+  const rowStride=((W*3+3)>>2)<<2;
+  const pixDataSize=rowStride*H;
+  const buf=new Uint8Array(54+pixDataSize);
+  const v=new DataView(buf.buffer);
+  buf[0]=0x42;buf[1]=0x4D;
+  v.setUint32(2,54+pixDataSize,true);
+  v.setUint32(6,0,true);v.setUint32(10,54,true);
+  v.setUint32(14,40,true);
+  v.setInt32(18,W,true);v.setInt32(22,-H,true);
+  v.setUint16(26,1,true);v.setUint16(28,24,true);
+  v.setUint32(30,0,true);v.setUint32(34,pixDataSize,true);
+  v.setInt32(38,2835,true);v.setInt32(42,2835,true);
+  v.setUint32(46,0,true);v.setUint32(50,0,true);
+  for(let py=0;py<H;py++) for(let px=0;px<W;px++){
+    const ci=getPixelIndex(px,py);
+    const c=palette[indexMap.indexOf(ci)]||palette[0];
+    const off=54+py*rowStride+px*3;
+    if(c&&!c.transparent){buf[off]=c.b;buf[off+1]=c.g;buf[off+2]=c.r;}
+  }
+  return buf;
+}
+
+// ── Download ──────────────────────────────────────────────────────────────
+function download(buf,name,mime){
+  const blob=new Blob([buf],{type:mime});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+function setStatus(msg){}
+function updateExportButtons(){
+  const ok=totalTiles>0;
+  document.getElementById('btn-edit-delete').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-shift-l').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-shift-r').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-edit-pixel').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-edit-draw').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-bin').disabled=!ok;
+  document.getElementById('btn-bmp').disabled=!ok;
+  document.getElementById('btn-bp0').disabled=!ok;
+  document.getElementById('btn-bp1').disabled=!ok;
+  document.getElementById('btn-bp2').disabled=!ok;
+  document.getElementById('btn-bp0-asm').disabled=!ok;
+  document.getElementById('btn-bp1-asm').disabled=!ok;
+  document.getElementById('btn-bp2-asm').disabled=!ok;
+  document.getElementById('btn-idx').style.opacity=ok?'1':'0.35';
+  document.getElementById('btn-sub').style.opacity=ok?'1':'0.35';
+}
+
+// ── Button events ─────────────────────────────────────────────────────────
+
+function buildSinglePlaneBuffer(plane){
+  const bytes=totalTiles*32;
+  const buf=new Uint8Array(bytes);
+  let i=0;
+  for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+    const{bp0,bp1,bp2}=encodeTile(tx,ty);
+    const src=[bp0,bp1,bp2][plane];
+    src.forEach((b,j)=>buf[i*32+j]=b);
+    i++;
+  }
+  return buf;
+}
+
+
+function buildSinglePlaneAsm(plane){
+  const names=['BP0','BP1','BP2'];
+  const lines=[
+    `; ${names[plane]} — tile bitplane data`,
+    `; ${totalTiles} tiles · 32 bytes/tile · TL→TR→BL→BR sub-tile order`,
+    `; Generated by Font Tile Tool`,
+    ''
+  ];
+  let i=0;
+  for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+    const tileIdx=ty*tileCountX+tx;
+    const {bp0,bp1,bp2}=encodeTile(tx,ty);
+    const src=[bp0,bp1,bp2][plane];
+    const quads=['TL','TR','BL','BR'];
+    lines.push(`; Tile ${tileIdx} ($${tileIdx.toString(16).toUpperCase().padStart(4,'0')}) offset $${(tileIdx*32).toString(16).toUpperCase().padStart(4,'0')}`);
+    for(let q=0;q<4;q++){
+      const bytes=src.slice(q*8,(q+1)*8).map(b=>'$'+b.toString(16).toUpperCase().padStart(2,'0')).join(', ');
+      lines.push(`	DB ${bytes}	; ${quads[q]}`);
+    }
+    i++;
+  }
+  return lines.join('\n');
+}
+
+['bp0-asm','bp1-asm','bp2-asm'].forEach((id,plane)=>{
+  document.getElementById('btn-'+id).onclick=()=>{
+    try{
+      const text=buildSinglePlaneAsm(plane);
+      const blob=new Blob([text],{type:'text/plain'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+      a.download='font_bp'+plane+'.asm'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    }catch(e){showErr('Export error: '+e.message);}
+  };
+});
+
+['bp0','bp1','bp2'].forEach((id,plane)=>{
+  document.getElementById('btn-'+id).onclick=()=>{
+    try{
+      const buf=buildSinglePlaneBuffer(plane);
+      download(buf,'font_'+id+'.bin','application/octet-stream');
+    }catch(e){showErr('Export error: '+e.message);}
+  };
+});
+
+document.getElementById('btn-bin').onclick=()=>{
+  try{const buf=buildBinBuffer();download(buf,'font_tiles.bin','application/octet-stream');
+    setStatus('Saved font_tiles.bin — '+buf.length+' bytes · '+totalTiles+' tiles · LSB swap: '+lsbSwapped);}
+  catch(e){showErr('Export error: '+e.message);}
+};
+document.getElementById('btn-bmp').onclick=()=>{
+  try{const buf=buildBmpBuffer();download(buf,'font_tiles.bmp','image/bmp');
+    setStatus('Saved font_tiles.bmp — '+srcW+'×'+srcH+'px 24bpp');}
+  catch(e){showErr('Export error: '+e.message);}
+};
+document.getElementById('btn-lsb').onclick=()=>{
+  lsbSwapped=!lsbSwapped;
+  const btn=document.getElementById('btn-lsb');
+  btn.textContent='LSB ↔ MSB: '+(lsbSwapped?'ON':'OFF');
+  btn.classList.toggle('lsb-on',lsbSwapped);
+  if(totalTiles>0){renderTiles();renderBitplanes();}
+};
+document.getElementById('btn-clear').onclick=()=>{
+  srcImg=null;pixels=null;totalTiles=0;lsbSwapped=false;
+  document.getElementById('main-ui').style.display='none';
+  
+  document.getElementById('bp-panel').style.display='none';
+  document.getElementById('col-panel').style.display='none';
+  
+  document.getElementById('fi').value='';
+  document.getElementById('bin-fi').value='';
+  rawBinData=null; rawBinName=''; rawBinFiles=[]; binExportPlaneBytes=null;
+  pixelIndices=null;
+  undoStack.length=0; redoStack.length=0; updateUndoButtons();
+  document.getElementById('bin-offset-panel').style.display='none';
+  document.getElementById('bin-offset-info').textContent='';
+  document.getElementById('bin-file-list').innerHTML='';
+  document.getElementById('bin-append-btn').disabled=true;
+  document.getElementById('bin-append-btn').style.color='#444';
+  document.getElementById('bin-append-btn').querySelector('svg').style.opacity='0.5';
+  binData=null; binTileCount=0;
+  document.getElementById('btn-lsb').textContent='LSB ↔ MSB swap: OFF';
+  document.getElementById('btn-lsb').classList.remove('lsb-on');
+  hideErr();setStatus('');
+};
+document.getElementById('show-quads').onchange=()=>{drawSource();renderTiles();};
+
+// ── Column (file layout) view ──────────────────────────────────────────────
+// Each tile is rendered as a single 8-wide × 32-tall column:
+//   rows  0– 7 = TL sub-tile (source tile rows 0–7,  cols 0–7)
+//   rows  8–15 = TR sub-tile (source tile rows 0–7,  cols 8–15)
+//   rows 16–23 = BL sub-tile (source tile rows 8–15, cols 0–7)
+//   rows 24–31 = BR sub-tile (source tile rows 8–15, cols 8–15)
+function renderColumnView(){
+  const quads=[[0,0],[0,8],[8,0],[8,8]];
+  const z=3;
+  const colW=8*z, colH=32*z;
+  document.getElementById('col-bp2-panel').style.display=threePlaneMode?'':'none';
+  const planes=threePlaneMode?[0,1,2]:onePlaneMode?[0]:[0,1];
+  planes.forEach(plane=>{
+    const cv=document.getElementById('col-bp'+plane);
+    cv.width  = totalTiles * (colW + 1);  // 1px gap between tiles
+    cv.height = colH;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle='#000';
+    ctx.fillRect(0,0,cv.width,cv.height);
+
+    let tileIdx=0;
+    for(let ty=0;ty<tileCountY;ty++) for(let tx=0;tx<tileCountX;tx++){
+      const ox = tileIdx * (colW + 1);
+      let destRow=0;
+      for(const [ro,co] of quads){
+        for(let r=0;r<8;r++){
+          for(let c=0;c<8;c++){
+            const srcC = lsbSwapped ? 7-c : c;
+            const idx=getPixelIndex(tx*16+co+srcC, ty*16+ro+r);
+            const bit=(idx>>plane)&1;
+            ctx.fillStyle=bit?'#ffffff':'#000';
+            ctx.fillRect(ox + c*z, destRow*z, z, z);
+          }
+          destRow++;
+        }
+      }
+      // Faint dividers between sub-tiles
+      ctx.strokeStyle='rgba(255,80,80,0.3)';
+      ctx.lineWidth=1; ctx.setLineDash([2,2]);
+      [8,16,24].forEach(row=>{
+        ctx.beginPath();
+        ctx.moveTo(ox, row*z);
+        ctx.lineTo(ox+colW, row*z);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      tileIdx++;
+    }
+  });
+}
+
+// ── Binary tilemap loader ──────────────────────────────────────────────────
+// Decodes .bin back into a synthetic pixel grid and feeds it into processImage()
+// so everything — palette UI, tile grid, bitplane views, export — works identically.
+
+// Four synthetic colors, chosen so detectPalette() sorts them as indices 0→3 by luminance:
+//   index 0 = #000000 (black)       lum=0
+//   index 1 = #3d2800 (dark brown)  lum≈28
+//   index 2 = #00c8e0 (cyan)        lum≈130
+//   index 3 = #d8f8ff (ice)         lum≈235
+// 8 synthetic colors sorted by luminance for 3-plane mode (also works as first 4 for 2-plane)
+const BIN_SYNTH = [
+  [0,   0,   0,   255],  // 0 lum=0
+  [61,  40,  0,   255],  // 1 lum=24
+  [0,   70,  90,  255],  // 2 lum=47
+  [0,   140, 170, 255],  // 3 lum=93
+  [60,  160, 40,  255],  // 4 lum=118
+  [0,   210, 224, 255],  // 5 lum=152
+  [220, 170, 50,  255],  // 6 lum=181
+  [210, 250, 255, 255],  // 7 lum=238
+];
+
+document.getElementById('bin-pick-btn').onclick=()=>document.getElementById('bin-fi').click();
+document.getElementById('bin-fi').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  loadBinFile(f);
+});
+
+let rawBinData=null, rawBinName='', rawBinFiles=[];
+let binExportPlaneBytes=null; // set when loading binary; null = use standard $100 calc
+
+function loadBinFile(file){
+  hideErr();
+  setStatus('Loading '+file.name+'…');
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    rawBinData=new Uint8Array(ev.target.result);
+    rawBinName=file.name;
+    rawBinFiles=[{name:file.name, size:rawBinData.length, offset:0}];
+
+    // Split file into 3 equal bitplanes.
+    // Boundary granularity: $100 for large files, $08 (one sub-tile row) for small.
+    const bp0Off=0;
+    const fileLen=rawBinData.length;
+    const exactPlane=fileLen/3;
+    const boundary=fileLen<0x300?0x08:0x100;
+    const planeSize=Math.ceil(exactPlane/boundary)*boundary;
+    const bp1Off=planeSize;
+    const bp2Off=planeSize*2;
+    // Check if plane size is on a full-tile boundary (multiples of 32)
+    const onTileBoundary=(planeSize%32===0);
+    // If not on tile boundary, count in sub-tiles (8 bytes each)
+    const tileCount=onTileBoundary
+      ? Math.max(1, Math.floor(planeSize/32))
+      : Math.max(1, Math.floor(planeSize/8));
+    const tileUnit=onTileBoundary?'tiles':'subtiles';
+
+    // Populate offset panel
+    document.getElementById('bp0-offset').value=bp0Off.toString(16).toUpperCase().padStart(4,'0');
+    document.getElementById('bp1-offset').value=bp1Off.toString(16).toUpperCase().padStart(4,'0');
+    document.getElementById('bp2-offset').value=bp2Off.toString(16).toUpperCase().padStart(4,'0');
+    document.getElementById('bin-tile-count').value=tileCount;
+    document.getElementById('tile-unit').value=tileUnit;
+    updateTileCountHint();
+    // Store exact plane byte size so export mirrors import byte-for-byte
+    binExportPlaneBytes=planeSize;
+    document.getElementById('bin-offset-info').textContent=
+      fileLen+' bytes ($'+fileLen.toString(16).toUpperCase().padStart(4,'0')+
+      ') · plane $'+planeSize.toString(16).toUpperCase().padStart(4,'0');
+    document.getElementById('bin-offset-panel').style.display='block';
+    document.getElementById('bin-append-btn').disabled=false;
+    document.getElementById('bin-append-btn').style.color='';
+    document.getElementById('bin-append-btn').querySelector('svg').style.opacity='1';
+    updateBinFileList();
+
+    decodeBinAndProcess(tileCount, bp0Off, bp1Off, bp2Off);
+  };
+  reader.onerror=()=>showErr('Could not read binary file.');
+  reader.readAsArrayBuffer(file);
+}
+
+// Safe bounds-checked read from rawBinData — returns 0 for out-of-bounds
+function rd(offset){
+  if(!rawBinData || offset<0 || offset>=rawBinData.length) return 0;
+  return rawBinData[offset];
+}
+
+function decodeBinAndProcess(tileCount, bp0Off, bp1Off, bp2Off, subTileLimit){
+  if(!rawBinData) return;
+  hideErr();
+  const use3=threePlaneMode;
+  const cols=16, rows=Math.ceil(tileCount/cols);
+  const W=cols*16, H=rows*16;
+
+  // Build pixelIndices DIRECTLY from bitplane data — bypass detectPalette
+  // so bitplane structure is always preserved exactly.
+  const newIndices=new Uint8Array(W*H);
+  const newPixels=new Uint8ClampedArray(W*H*4);
+
+  // subTileLimit: if set, only decode that many sub-tiles total (4 per tile)
+  const maxSubTiles = (subTileLimit!=null) ? subTileLimit : tileCount*4;
+
+  for(let ti=0;ti<tileCount;ti++){
+    const tileCol=ti%cols, tileRow=Math.floor(ti/cols);
+    const ox=tileCol*16, oy=tileRow*16;
+    for(let py=0;py<16;py++) for(let px=0;px<16;px++){
+      const qi=(py>=8?2:0)+(px>=8?1:0);
+      // Global sub-tile index for this position
+      const subTileIdx=ti*4+qi;
+      if(subTileIdx>=maxSubTiles){
+        // Beyond limit — leave as transparent (index 0, black pixel)
+        continue;
+      }
+      const rowQ=py&7, colQ=px&7;
+      const byt=qi*8+rowQ;
+      const b0=rd(bp0Off+ti*32+byt);
+      const b1=(!onePlaneMode)?rd(bp1Off+ti*32+byt):0;
+      const b2=use3?rd((bp2Off||0)+ti*32+byt):0;
+      const bitPos=7-colQ;
+      const idx=((b0>>bitPos)&1)|(((b1>>bitPos)&1)<<1)|(((b2>>bitPos)&1)<<2);
+      const pi=(oy+py)*W+(ox+px);
+      newIndices[pi]=idx;
+      const col=BIN_SYNTH[idx];
+      newPixels[pi*4]=col[0]; newPixels[pi*4+1]=col[1];
+      newPixels[pi*4+2]=col[2]; newPixels[pi*4+3]=col[3];
+    }
+  }
+
+  // Set up state directly — no detectPalette, no indexMap remapping
+  srcW=W; srcH=H;
+  tileCountX=cols; tileCountY=rows; totalTiles=tileCount;
+  pixels=newPixels;
+  pixelIndices=newIndices;
+
+  // Seed a synthetic 8-colour palette matching BIN_SYNTH so palette editor works
+  palette=BIN_SYNTH.slice(0,threePlaneMode?8:onePlaneMode?2:4).map((c,i)=>({
+    r:c[0],g:c[1],b:c[2],hex:'#'+[c[0],c[1],c[2]].map(v=>v.toString(16).padStart(2,'0')).join(''),
+    count:0, transparent:i===0
+  }));
+  indexMap=palette.map((_,i)=>i);
+
+  // Render srcImg from pixels for drawSource
+  const off=document.createElement('canvas');
+  off.width=W; off.height=H;
+  off.getContext('2d').putImageData(new ImageData(newPixels,W,H),0,0);
+  const img=new Image();
+  img.onload=()=>{
+    srcImg=img;
+    // Show panels
+    document.getElementById('main-ui').style.display='flex';
+    ['pal-editor-panel','anim-panel','bp-panel','col-panel'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.style.display='block';
+    });
+    buildPaletteUI();
+    // skip seedPalFromDetected for binary loads — keep current palRGB9
+    drawSource();
+    renderTiles();
+    if(animFrames&&animFrames.length){buildAnimStrip();updateAnimDisplay();}
+    renderBitplanes();
+    updateExportButtons();
+    updateUndoButtons();
+    setStatus(rawBinName+' — '+tileCount+' tiles · BP0 $'+
+      bp0Off.toString(16).toUpperCase().padStart(4,'0')+
+      ' · BP1 $'+bp1Off.toString(16).toUpperCase().padStart(4,'0')+
+      ' · BP2 $'+(bp2Off||0).toString(16).toUpperCase().padStart(4,'0'));
+  };
+  img.src=off.toDataURL();
+}
+
+
+// ── Append binary ─────────────────────────────────────────────────────────
+// rawBinFiles declared above with rawBinData/rawBinName
+
+function updateBinFileList(){
+  const el = document.getElementById('bin-file-list');
+  if(!el) return;
+  el.innerHTML = rawBinFiles.map((f,i)=>
+    `<span style="color:#555;">[$${f.offset.toString(16).toUpperCase().padStart(4,'0')}]</span> ${f.name} <span style="color:#333;">(${f.size}b)</span>`
+  ).join('<br>');
+}
+
+document.getElementById('bin-append-btn').onclick=()=>document.getElementById('bin-append-fi').click();
+document.getElementById('bin-append-fi').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  appendBinFile(f);
+  e.target.value=''; // reset so same file can be appended again
+});
+
+function appendBinFile(file){
+  if(!rawBinData){showErr('Load a binary file first before appending.');return;}
+  hideErr();
+  setStatus('Appending '+file.name+'…');
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const append=new Uint8Array(ev.target.result);
+    const prevLen=rawBinData.length;
+    // Concatenate
+    const merged=new Uint8Array(prevLen+append.length);
+    merged.set(rawBinData);
+    merged.set(append, prevLen);
+    rawBinData=merged;
+    rawBinFiles.push({name:file.name, size:append.length, offset:prevLen});
+    // Update size info
+    document.getElementById('bin-offset-info').textContent=
+      rawBinData.length+' bytes ($'+rawBinData.length.toString(16).toUpperCase().padStart(4,'0')+')';
+    updateBinFileList();
+    setStatus('Appended '+file.name+' at $'+prevLen.toString(16).toUpperCase().padStart(4,'0')+
+      ' — total '+rawBinData.length+' bytes');
+    doReload();
+  };
+  reader.onerror=()=>showErr('Could not read file for append.');
+  reader.readAsArrayBuffer(file);
+}
+
+// Also handle append via drop when shift is held
+
+function stepOffset(inputId, delta){
+  if(!rawBinData){return;}
+  const el=document.getElementById(inputId);
+  let val=(parseInt(el.value,16)||0)+delta;
+  if(val<0) val=0;
+  if(val>=rawBinData.length) val=rawBinData.length-1;
+  el.value=val.toString(16).toUpperCase().padStart(4,'0');
+  doReload();
+}
+
+
+function onTileUnitChange(){
+  updateTileCountHint();
+  // Don't auto-reload — user may still be adjusting
+}
+
+function updateTileCountHint(){
+  const unit=document.getElementById('tile-unit').value;
+  const count=parseInt(document.getElementById('bin-tile-count').value)||0;
+  const hint=document.getElementById('tile-count-hint');
+  if(!hint) return;
+  if(unit==='subtiles'){
+    const fullTiles=Math.floor(count/4);
+    const rem=count%4;
+    const subNames=['','TL','TL+TR','TL+TR+BL'];
+    hint.textContent=fullTiles+' tile'+(fullTiles!==1?'s':'')+
+      (rem?' + '+subNames[rem]||' + '+rem+' sub':'');
+    hint.style.color='#4ab8ff';
+  } else {
+    hint.textContent='';
+  }
+}
+
+function doReload(){
+  if(!rawBinData) return;
+  const bp0=parseInt(document.getElementById('bp0-offset').value,16)||0;
+  const bp1=parseInt(document.getElementById('bp1-offset').value,16)||0;
+  const bp2=parseInt(document.getElementById('bp2-offset').value,16)||0;
+  const unit=document.getElementById('tile-unit').value;
+  const rawCount=Math.max(1,parseInt(document.getElementById('bin-tile-count').value)||1);
+  document.getElementById('bin-tile-count').value=rawCount;
+  updateTileCountHint();
+  // Sub-tile mode: 4 sub-tiles = 1 tile; round up so partial tiles render
+  const tileCount=unit==='subtiles' ? Math.max(1,Math.ceil(rawCount/4)) : rawCount;
+  const subLimit=unit==='subtiles' ? rawCount : null;
+  // Recalculate export plane size based on current settings
+  if(unit==='subtiles') binExportPlaneBytes=rawCount*8;      // 8 bytes per sub-tile
+  else                  binExportPlaneBytes=rawCount*32;      // 32 bytes per tile (no $100 padding for reloads)
+  decodeBinAndProcess(tileCount, bp0, bp1, bp2, subLimit);
+}
+
+document.getElementById('btn-bin-reload').onclick=()=>{
+  if(!rawBinData){showErr('No binary loaded.');return;}
+  doReload();
+};
+
+function toggleBp1Bp2(){
+  const useBp1=document.getElementById('use-bp1').checked;
+  const useBp2=document.getElementById('use-bp2').checked;
+
+  // Enforce: if BP1 is off, BP2 must also be off
+  if(!useBp1 && useBp2){
+    document.getElementById('use-bp2').checked=false;
+  }
+
+  onePlaneMode  = !document.getElementById('use-bp1').checked;
+  threePlaneMode = document.getElementById('use-bp1').checked && document.getElementById('use-bp2').checked;
+
+  // Show/hide BP1 offset group (reuse bp2-offset-group for bp2 only)
+  document.getElementById('bp2-offset-group').style.display=
+    (document.getElementById('use-bp1').checked && document.getElementById('use-bp2').checked)?'':'none';
+
+  // Show/hide BP1 bitplane preview panel
+  const bp1panel=document.getElementById('bp1-wrap') && document.getElementById('bp1-wrap').closest('.panel.grow');
+  if(bp1panel) bp1panel.style.display=document.getElementById('use-bp1').checked?'':'none';
+
+  if(totalTiles>0){detectPalette();buildPaletteUI();renderTiles();renderBitplanes();}
+  if(rawBinData){
+    const bp0=parseInt(document.getElementById('bp0-offset').value,16)||0;
+    const bp1=parseInt(document.getElementById('bp1-offset').value,16)||0;
+    const bp2=parseInt(document.getElementById('bp2-offset').value,16)||0;
+    const tc=parseInt(document.getElementById('bin-tile-count').value)||0;
+    if(tc) decodeBinAndProcess(tc,bp0,bp1,bp2);
+  }
+}
+
+// Palette preset helpers still needed for any old references — no-op stubs
+function setBinPalette(c0,c1,c2,c3){}
+function renderBinTilemap(){}
+function getBinPixel(){}
+function h2rgb(){}
+
+document.getElementById('btn-lsb').addEventListener('click',()=>{});
+
+
+// ── 9-bit palette editor ──────────────────────────────────────────────────
+// Each entry: [r,g,b] each 0-7 (3-bit)
+let palRGB9 = [
+  [0,0,0],  // 0 black
+  [0,0,7],  // 1 blue
+  [7,0,0],  // 2 red
+  [7,0,7],  // 3 magenta
+  [0,7,0],  // 4 green
+  [0,7,7],  // 5 cyan
+  [7,7,0],  // 6 yellow
+  [7,7,7],  // 7 white
+];
+
+function encode9bit(r,g,b){
+  // High byte: bit 2 of R (MSB of red)
+  // Low byte:  [R1,R0, G2,G1,G0, B2,B1,B0]
+  const h = (r >> 2) & 1;
+  const l = ((r & 3) << 6) | ((g & 7) << 3) | (b & 7);
+  return [h, l];
+}
+
+function encode9bitNeg(r,g,b){
+  const [h,l] = encode9bit(r,g,b);
+  return [(~h)&0xFF, (~l)&0xFF];
+}
+
+function rgbTo3bit(r8,g8,b8){
+  return [Math.round(r8*7/255), Math.round(g8*7/255), Math.round(b8*7/255)];
+}
+
+function bit3ToRgb8(v){ return Math.round(v*255/7); }
+
+function buildPalEditor(){
+  const count = threePlaneMode ? 8 : onePlaneMode ? 2 : 4;
+  const el = document.getElementById('pal-editor-rows');
+  el.innerHTML = '';
+
+  for(let i=0; i<count; i++){
+    const [r,g,b] = palRGB9[i];
+    const [hn,ln] = encode9bitNeg(r,g,b);
+    const [h,l]   = encode9bit(r,g,b);
+    const dr=bit3ToRgb8(r), dg=bit3ToRgb8(g), db=bit3ToRgb8(b);
+    // nearest HTML colour for the picker
+    const pickerHex=rgbToHex3bit(r,g,b);
+
+    const entry = document.createElement('div');
+    entry.className = 'pal-entry'+(i===drawColour&&drawMode?' draw-sel':'');
+    entry.dataset.idx = i;
+    // Click to select as draw colour (if draw mode on, or just set ready)
+    entry.innerHTML = `
+      <span class="pal-idx">${i}</span>
+      <div class="pal-swatch9" id="psw${i}" style="background:rgb(${dr},${dg},${db});border-radius:4px;cursor:pointer;" title="Click to edit colour"></div>
+      <div class="pal-bytes" style="line-height:2;">
+        <div>neg: <span class="ph">$${hn.toString(16).toUpperCase().padStart(2,'0')}</span> <span class="pl">$${ln.toString(16).toUpperCase().padStart(2,'0')}</span></div>
+        <div style="font-size:9px;color:#555;">R:${r} G:${g} B:${b}</div>
+      </div>`;
+    // Swatch click → open 9-bit modal
+    entry.querySelector('.pal-swatch9').addEventListener('click',(e)=>{
+      e.stopPropagation();
+      openPal9Modal(i);
+    });
+    // Entry body click → select draw colour
+    entry.addEventListener('click',()=>{
+      drawColour=i;
+      document.querySelectorAll('.pal-entry').forEach(en=>en.classList.remove('draw-sel'));
+      entry.classList.add('draw-sel');
+    });
+    el.appendChild(entry);
+  }
+
+
+}
+
+function rgbToHex3bit(r3,g3,b3){
+  const r=bit3ToRgb8(r3),g=bit3ToRgb8(g3),b=bit3ToRgb8(b3);
+  return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+function updatePalEntry(i){
+  const [r,g,b] = palRGB9[i];
+  const [hn,ln] = encode9bitNeg(r,g,b);
+  const dr=bit3ToRgb8(r), dg=bit3ToRgb8(g), db=bit3ToRgb8(b);
+  const sw=document.getElementById('psw'+i);
+  if(sw){
+    sw.style.background=`rgb(${dr},${dg},${db})`;
+
+    // update RGB label and neg bytes inside the entry
+    const entry=sw.closest('.pal-entry');
+    if(entry){
+      const bytes=entry.querySelector('.pal-bytes');
+      if(bytes) bytes.innerHTML=
+        `<div>neg: <span class="ph">$${hn.toString(16).toUpperCase().padStart(2,'0')}</span> <span class="pl">$${((~(encode9bit(r,g,b)[1]))&0xFF).toString(16).toUpperCase().padStart(2,'0')}</span></div>`+
+        `<div style="font-size:9px;color:#2a2a3a;">R:${r} G:${g} B:${b}</div>`;
+    }
+  }
+  if(totalTiles>0){ renderTiles(); renderBitplanes(); }
+}
+
+function seedPalFromDetected(){
+  // Map each detected palette entry to nearest 9-bit RGB
+  palette.forEach((c,i)=>{
+    if(c.transparent){ palRGB9[i]=[0,0,0]; return; }
+    palRGB9[i]=rgbTo3bit(c.r,c.g,c.b);
+  });
+  buildPalEditor();
+}
+
+
+document.getElementById('btn-import-pal').onclick=()=>document.getElementById('pal-import-fi').click();
+document.getElementById('pal-import-fi').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const text=ev.target.result;
+    // Parse lines matching:  DB $HH, $LL  (negated pairs)
+    const re=/DB\s+\$([0-9A-Fa-f]{2})\s*,\s*\$([0-9A-Fa-f]{2})/g;
+    let match, idx=0;
+    const maxCols=threePlaneMode?8:onePlaneMode?2:4;
+    while((match=re.exec(text))!==null && idx<maxCols){
+      const hn=parseInt(match[1],16), ln=parseInt(match[2],16);
+      // Un-negate
+      const h=(~hn)&0xFF, l=(~ln)&0xFF;
+      // Decode: h = bit2 of R; l = [R1,R0,G2,G1,G0,B2,B1,B0]
+      const r=((h&1)<<2)|((l>>6)&3);
+      const g=(l>>3)&7;
+      const b=l&7;
+      palRGB9[idx]=[r,g,b];
+      idx++;
+    }
+    if(idx===0){showErr('No DB palette entries found in file.');return;}
+    buildPalEditor();
+    if(totalTiles>0){renderTiles();renderBitplanes();}
+  };
+  reader.onerror=()=>showErr('Could not read palette file.');
+  reader.readAsText(f);
+  e.target.value='';
+});
+
+document.getElementById('btn-export-pal').onclick=()=>{
+  const count=threePlaneMode?8:4;
+  const lines=['; Palette — 9-bit RGB, negated, Z80 DB format',
+               '; High byte: bit2 of R   Low byte: [R1,R0,G2,G1,G0,B2,B1,B0]',''];
+  for(let i=0;i<count;i++){
+    const [r,g,b]=palRGB9[i];
+    const [hn,ln]=encode9bitNeg(r,g,b);
+    lines.push(`	DB $${hn.toString(16).toUpperCase().padStart(2,'0')}, $${ln.toString(16).toUpperCase().padStart(2,'0')}		; idx ${i}  R:${r} G:${g} B:${b}`);
+  }
+  const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='palette.asm'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  setStatus('Exported palette.asm — '+count+' entries');
+};
+
+
+// ── 9-bit colour picker modal ─────────────────────────────────────────────
+let pal9ActiveIdx = -1;
+
+function openPal9Modal(idx){
+  pal9ActiveIdx = idx;
+  const [r,g,b] = palRGB9[idx];
+  document.getElementById('pal9-r').value = r;
+  document.getElementById('pal9-g').value = g;
+  document.getElementById('pal9-b').value = b;
+  document.getElementById('pal9-title').textContent = 'Index ' + idx;
+  updatePal9Preview();
+  document.getElementById('pal9-modal').style.display = 'flex';
+}
+
+function closePal9Modal(apply){
+  if(apply && pal9ActiveIdx >= 0){
+    const r=parseInt(document.getElementById('pal9-r').value);
+    const g=parseInt(document.getElementById('pal9-g').value);
+    const b=parseInt(document.getElementById('pal9-b').value);
+    palRGB9[pal9ActiveIdx] = [r,g,b];
+    updatePalEntry(pal9ActiveIdx);
+  }
+  document.getElementById('pal9-modal').style.display = 'none';
+  pal9ActiveIdx = -1;
+}
+
+function updatePal9Preview(){
+  const r=parseInt(document.getElementById('pal9-r').value);
+  const g=parseInt(document.getElementById('pal9-g').value);
+  const b=parseInt(document.getElementById('pal9-b').value);
+  const dr=bit3ToRgb8(r), dg=bit3ToRgb8(g), db=bit3ToRgb8(b);
+  document.getElementById('pal9-preview').style.background='rgb('+dr+','+dg+','+db+')';
+  document.getElementById('pal9-rv').textContent = r;
+  document.getElementById('pal9-gv').textContent = g;
+  document.getElementById('pal9-bv').textContent = b;
+  const hn_val=encode9bitNeg(r,g,b)[0], ln_val=encode9bitNeg(r,g,b)[1];
+  const h_val=encode9bit(r,g,b)[0],     l_val=encode9bit(r,g,b)[1];
+  document.getElementById('pal9-bytes').innerHTML =
+    'raw: <span style="color:#6fdd6f;">$'+h_val.toString(16).toUpperCase().padStart(2,'0')+
+    ' $'+l_val.toString(16).toUpperCase().padStart(2,'0')+'</span>'+
+    '&nbsp;&nbsp;neg: <span style="color:#4ab8ff;">$'+hn_val.toString(16).toUpperCase().padStart(2,'0')+
+    ' $'+ln_val.toString(16).toUpperCase().padStart(2,'0')+'</span>';
+}
+
+['pal9-r','pal9-g','pal9-b'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', updatePal9Preview);
+});
+
+document.querySelectorAll('.pal9-quick').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const parts=btn.dataset.rgb.split(',');
+    document.getElementById('pal9-r').value=parts[0];
+    document.getElementById('pal9-g').value=parts[1];
+    document.getElementById('pal9-b').value=parts[2];
+    updatePal9Preview();
+  });
+});
+
+document.getElementById('pal9-modal').addEventListener('click',e=>{
+  if(e.target===document.getElementById('pal9-modal')) closePal9Modal(false);
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && document.getElementById('pal9-modal').style.display==='flex')
+    closePal9Modal(false);
+});
+
+
+// ── Animation preview ─────────────────────────────────────────────────────
+let animFrames=[];    // array of tile indices
+let animFrame=0;      // current frame index
+let animTimer=null;   // setInterval handle
+let animRunning=false;
+
+function getAnimSeq(){
+  const raw=document.getElementById('anim-seq').value;
+  // Accept comma or space separated, filter out non-numbers
+  const parts=raw.split(/[,\s]+/).map(s=>s.trim()).filter(s=>/^\d+$/.test(s));
+  return parts.map(Number).filter(n=>n>=0&&n<totalTiles);
+}
+
+function getAnimShifts(){
+  const raw=document.getElementById('anim-shift').value;
+  if(!raw.trim()) return null;
+  const parts=raw.split(/[,\s]+/).map(s=>s.trim()).filter(s=>/^-?\d+$/.test(s));
+  return parts.map(Number);
+}
+
+// Draw tile at an arbitrary canvas position
+function drawTileBaseAt(ctx,tx,ty,z,ox,oy){
+  for(let py=0;py<16;py++) for(let px=0;px<16;px++){
+    const byteCol=px&8, bitPos=px&7;
+    const srcPx=lsbSwapped?byteCol+(7-bitPos):px;
+    const sx=tx*16+srcPx, sy=ty*16+py;
+    const ci=getPixelIndex(sx,sy);
+    let col;
+    if(ci===0){
+      col=null; // transparent — skip, canvas bg shows through
+    } else {
+      const pal9=palRGB9[ci];
+      if(pal9){
+        const r=bit3ToRgb8(pal9[0]),g=bit3ToRgb8(pal9[1]),b=bit3ToRgb8(pal9[2]);
+        col='rgb('+r+','+g+','+b+')';
+      } else {
+        const ii=(sy*srcW+sx)*4;
+        col='rgb('+pixels[ii]+','+pixels[ii+1]+','+pixels[ii+2]+')';
+      }
+    }
+    if(col){ ctx.fillStyle=col; ctx.fillRect(ox+px*z, oy+py*z, z, z); }
+  }
+}
+
+function renderAnimFrame(tileIdx, shiftPx){
+  const z=parseInt(document.getElementById('anim-zoom').value)||4;
+  const tileW=16*z;
+  const cv=document.getElementById('anim-canvas');
+  cv.width=tileW*3; cv.height=tileW;
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='#0e0e14';
+  ctx.fillRect(0,0,cv.width,cv.height);
+  if(tileIdx<0||tileIdx>=totalTiles) return;
+  // No clamp — sprite can scroll fully off either edge
+  const ox=tileW + (shiftPx||0)*z;
+  const tx=tileIdx%tileCountX, ty=Math.floor(tileIdx/tileCountX);
+  ctx.save();
+  ctx.rect(0,0,cv.width,cv.height); ctx.clip();
+  drawTileBaseAt(ctx,tx,ty,z,ox,0);
+  ctx.restore();
+}
+
+function buildAnimStrip(){
+  // Strip shows only the unique tiles in the tile sequence (not the full expanded frame count)
+  const strip=document.getElementById('anim-strip');
+  strip.innerHTML='';
+  const z=3;
+  animFrames.forEach((tileIdx,seqIdx)=>{
+    const cv=document.createElement('canvas');
+    cv.width=16*z; cv.height=16*z;
+    cv.style.imageRendering='pixelated';
+    cv.style.borderRadius='2px';
+    cv.style.cursor='pointer';
+    cv.style.border='1.5px solid #1e1e28';
+    cv.title='Seq '+seqIdx+' — tile '+tileIdx;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle='#0e0e14'; ctx.fillRect(0,0,cv.width,cv.height);
+    if(tileIdx>=0&&tileIdx<totalTiles){
+      const tx=tileIdx%tileCountX, ty=Math.floor(tileIdx/tileCountX);
+      drawTileBase(ctx,tx,ty,z);
+    }
+    cv.addEventListener('click',(()=>{
+      const si=seqIdx;
+      return ()=>{
+        stopAnim();
+        // Jump to the first animation frame that uses this tile seq position
+        animFrame=si;
+        updateAnimDisplay();
+      };
+    })());
+    strip.appendChild(cv);
+  });
+}
+
+function gcd(a,b){ return b===0?a:gcd(b,a%b); }
+function lcm(a,b){ return a&&b ? (a/gcd(a,b))*b : a||b; }
+
+function getTotalFrameCount(){
+  const tiles=animFrames;
+  const shifts=getAnimShifts();
+  const tLen=tiles.length;
+  const sLen=shifts?shifts.length:0;
+  if(!tLen&&!sLen) return 0;
+  if(!tLen) return sLen;
+  if(!sLen) return tLen;
+  // LCM so both sequences complete a full cycle before repeating together
+  return lcm(tLen,sLen);
+}
+
+function updateAnimDisplay(){
+  const tiles=animFrames;
+  const shifts=getAnimShifts();
+  const totalFrames=getTotalFrameCount();
+  if(!totalFrames){
+    document.getElementById('anim-info').textContent='No valid tiles or shifts entered.';
+    document.getElementById('anim-frame-label').textContent='';
+    return;
+  }
+  const fi=((animFrame%totalFrames)+totalFrames)%totalFrames;
+  animFrame=fi;
+  // Each sequence loops independently
+  const tileIdx=tiles.length?tiles[fi%tiles.length]:-1;
+  const shiftPx=shifts&&shifts.length?shifts[fi%shifts.length]:0;
+  const hint=document.getElementById('anim-shift-hint');
+  if(hint) hint.textContent=
+    'frame '+(fi+1)+'/'+totalFrames+
+    (tiles.length?' · tile '+(fi%tiles.length):'')+'  shift '+(shiftPx>=0?'+':'')+shiftPx+'px';
+  if(tileIdx>=0) renderAnimFrame(tileIdx, shiftPx);
+  document.getElementById('anim-frame-label').textContent=
+    'Frame '+(fi+1)+'/'+totalFrames+' — tile '+tileIdx;
+  document.getElementById('anim-info').textContent=
+    totalFrames+' frame'+(totalFrames!==1?'s':'')+
+    ' · '+tiles.length+' tile'+(tiles.length!==1?'s':'')+' looping'+
+    (shifts?' · '+shifts.length+' shift steps':'')+
+    ' · '+document.getElementById('anim-fps').value+' fps';
+  // Highlight the strip entry corresponding to the current tile seq position
+  const strip=document.getElementById('anim-strip');
+  const seqPos=tiles.length?fi%tiles.length:-1;
+  Array.from(strip.children).forEach((cv,i)=>{
+    const active=(i===seqPos);
+    cv.style.border='1.5px solid '+(active?'#ffcc00':'#1e1e28');
+    cv.style.boxShadow=active?'0 0 0 1px rgba(255,204,0,0.4)':'';
+    if(active) cv.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});
+  });
+}
+
+function startAnim(){
+  if(animTimer) clearInterval(animTimer);
+  const fps=parseInt(document.getElementById('anim-fps').value)||8;
+  animTimer=setInterval(()=>{
+    animFrames=getAnimSeq();
+    const _tf=getTotalFrameCount();
+    if(!_tf){stopAnim();return;}
+    animFrame=(animFrame+1)%_tf;
+    updateAnimDisplay();
+  }, Math.round(1000/fps));
+  animRunning=true;
+  document.getElementById('anim-play-btn').textContent='⏸ Pause';
+  document.getElementById('anim-play-btn').classList.add('active');
+}
+
+function stopAnim(){
+  if(animTimer){clearInterval(animTimer);animTimer=null;}
+  animRunning=false;
+  document.getElementById('anim-play-btn').textContent='▶ Play';
+  document.getElementById('anim-play-btn').classList.remove('active');
+}
+
+function toggleAnim(){
+  animFrames=getAnimSeq();
+  if(!getTotalFrameCount()){showErr('Enter tile indices or a shift sequence.');return;}
+  buildAnimStrip();
+  if(animRunning) stopAnim();
+  else startAnim();
+  updateAnimDisplay();
+}
+
+function animStep(delta){
+  stopAnim();
+  animFrames=getAnimSeq();
+  const _sf=getTotalFrameCount();
+  if(!_sf) return;
+  buildAnimStrip();
+  animFrame=(animFrame+delta+_sf)%_sf;
+  updateAnimDisplay();
+}
+
+// Live update strip on sequence change
+document.getElementById('anim-seq').addEventListener('input',()=>{
+  animFrames=getAnimSeq();
+  buildAnimStrip();
+  if(animFrames.length) updateAnimDisplay();
+});
+document.getElementById('anim-shift').addEventListener('input',()=>{
+  if(animFrames.length) updateAnimDisplay();
+});
+
+document.getElementById('anim-fps').addEventListener('input',()=>{
+  document.getElementById('anim-fps-val').textContent=document.getElementById('anim-fps').value;
+  if(animRunning){stopAnim();startAnim();}
+  else updateAnimDisplay();
+});
+
+document.getElementById('anim-zoom').addEventListener('change',()=>{
+  renderAnimFrame(animFrames[animFrame]||0);
+});
+
+
+
+</script>
+
+
+
+</body>
+</html>
